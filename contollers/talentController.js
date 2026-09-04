@@ -1,5 +1,6 @@
 const TalentCorner = require("../models/TalentCorner");
 const User = require("../models/User");
+const mongoose = require("mongoose")
 const AuditLog = require("../models/AuditLog");
 const Designation = require("../models/Designation");
 const buildDateFilter = require("../utils/dateFilter");
@@ -143,44 +144,148 @@ exports.addTalent = async (req, res) => {
 // Get HR's own Talent Corner submissions
 exports.getMyTalentData = async (req, res) => {
   try {
+    // =====================================================
+    // PAGINATION
+    // =====================================================
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    // =====================================================
+    // DATE FILTER
+    // =====================================================
+
     const dateQuery = buildDateFilter(req.query, "createdAt");
-    const query = { hrId: req.user.id, ...dateQuery };
+
+    // =====================================================
+    // CURRENT LOGGED-IN HR
+    // =====================================================
+
+    const hrId = req.user.id;
+
+    // =====================================================
+    // OWNERSHIP CONDITION
+    // =====================================================
+    //
+    // 1. Original HR's leads which are NOT assigned
+    //    to anyone.
+    //
+    // 2. Leads currently assigned to this HR.
+    //
+    // Example:
+    //
+    // HR1 creates lead:
+    // hrId = HR1
+    // assignedTo = null
+    //
+    // HR1 assigns to HR2:
+    // hrId = HR1
+    // assignedTo = HR2
+    //
+    // Now HR1 will NOT see it.
+    // HR2 WILL see it.
+    //
+    // =====================================================
+
+    const query = {
+      $or: [
+        {
+          hrId: hrId,
+          $or: [
+            { assignedTo: null },
+            { assignedTo: { $exists: false } },
+          ],
+        },
+
+        {
+          assignedTo: hrId,
+        },
+      ],
+      ...dateQuery,
+    };
+
+    // =====================================================
+    // DESIGNATION FILTER
+    // =====================================================
 
     if (req.query.candidateDesignation) {
-      query.candidateDesignation = req.query.candidateDesignation;
+      query.candidateDesignation =
+        req.query.candidateDesignation;
     } else if (req.query.designation) {
-      query.candidateDesignation = req.query.designation;
+      query.candidateDesignation =
+        req.query.designation;
     }
+
+    // =====================================================
+    // SEARCH
+    // =====================================================
+
     if (req.query.search) {
       const escapedSearch = req.query.search.replace(
         /[-\/\\^$*+?.()|[\]{}]/g,
-        "\\$&",
+        "\\$&"
       );
-      query.$or = [
-        { candidateName: { $regex: escapedSearch, $options: "i" } },
-        { candidatePhone: { $regex: escapedSearch, $options: "i" } },
-        { candidateLocation: { $regex: escapedSearch, $options: "i" } },
+
+      query.$and = [
+        {
+          $or: [
+            {
+              candidateName: {
+                $regex: escapedSearch,
+                $options: "i",
+              },
+            },
+            {
+              candidatePhone: {
+                $regex: escapedSearch,
+                $options: "i",
+              },
+            },
+            {
+              candidateLocation: {
+                $regex: escapedSearch,
+                $options: "i",
+              },
+            },
+          ],
+        },
       ];
     }
 
+    // =====================================================
+    // TOTAL COUNT
+    // =====================================================
+
     const total = await TalentCorner.countDocuments(query);
+
+    // =====================================================
+    // FETCH DATA
+    // =====================================================
+
     const data = await TalentCorner.find(query)
+      .populate("hrId", "name")
+      .populate("assignedTo", "name")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    res.status(200).json({
+    // =====================================================
+    // RESPONSE
+    // =====================================================
+
+    return res.status(200).json({
       data,
       currentPage: page,
       totalPages: Math.ceil(total / limit),
       totalSubmissions: total,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("getMyTalentData Error:", error);
+
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
@@ -536,5 +641,220 @@ exports.exportTalent = async (req, res) => {
     return res.status(200).send(csvContent);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+
+exports.assignTalentCorner = async (req, res) => {
+  try {
+    const { assignedTo, leadIds } = req.body;
+
+    // =====================================================
+    // CURRENT LOGGED-IN USER
+    // =====================================================
+
+    const currentUserId = req.user.id;
+
+    // =====================================================
+    // VALIDATE assignedTo
+    // =====================================================
+
+    if (!assignedTo) {
+      return res.status(400).json({
+        message: "assignedTo is required.",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
+      return res.status(400).json({
+        message: "Invalid assignedTo.",
+      });
+    }
+
+    // =====================================================
+    // VALIDATE leadIds
+    // =====================================================
+
+    if (!Array.isArray(leadIds) || leadIds.length === 0) {
+      return res.status(400).json({
+        message: "At least one leadId is required.",
+      });
+    }
+
+    const invalidLeadIds = leadIds.filter(
+      (leadId) => !mongoose.Types.ObjectId.isValid(leadId)
+    );
+
+    if (invalidLeadIds.length > 0) {
+      return res.status(400).json({
+        message: "One or more lead IDs are invalid.",
+        invalidLeadIds,
+      });
+    }
+
+    // =====================================================
+    // CHECK TARGET HR
+    // =====================================================
+
+    const assignedHR = await User.findOne({
+      _id: assignedTo,
+      role: "hr",
+    }).select("_id name email role");
+
+    if (!assignedHR) {
+      return res.status(404).json({
+        message: "Assigned user was not found or is not an HR.",
+      });
+    }
+
+    // =====================================================
+    // PREVENT ASSIGNING TO SAME HR
+    // =====================================================
+
+    if (currentUserId.toString() === assignedTo.toString()) {
+      return res.status(400).json({
+        message: "Cannot assign leads to yourself.",
+      });
+    }
+
+    // =====================================================
+    // FIND ACCESSIBLE LEADS
+    // =====================================================
+    //
+    // IMPORTANT:
+    //
+    // hrId = ORIGINAL CREATOR
+    //
+    // assignedTo = CURRENT HR
+    //
+    // Therefore we DO NOT simply check:
+    //
+    //     hrId: currentUserId
+    //
+    // because after reassignment, hrId still contains
+    // the original creator.
+    //
+    // =====================================================
+
+    let ownershipCondition;
+
+    if (req.user.role === "superadmin") {
+      // Superadmin can assign any Talent Corner lead.
+      ownershipCondition = {};
+    } else {
+      ownershipCondition = {
+        $or: [
+          {
+            // Lead was created by this HR and has
+            // never been assigned to another HR.
+            hrId: currentUserId,
+            $or: [
+              { assignedTo: null },
+              { assignedTo: { $exists: false } },
+            ],
+          },
+
+          {
+            // Lead is currently assigned to this HR.
+            assignedTo: currentUserId,
+          },
+        ],
+      };
+    }
+
+    // =====================================================
+    // FETCH ONLY ACCESSIBLE LEADS
+    // =====================================================
+
+    const leads = await TalentCorner.find({
+      _id: { $in: leadIds },
+      ...ownershipCondition,
+    }).select(
+      "_id hrId assignedTo candidateName"
+    );
+
+    // =====================================================
+    // NO ACCESSIBLE LEADS
+    // =====================================================
+
+    if (leads.length === 0) {
+      return res.status(403).json({
+        message:
+          "You are not authorized to assign the selected leads.",
+      });
+    }
+
+    // =====================================================
+    // GET VALID LEAD IDS
+    // =====================================================
+
+    const validLeadIds = leads.map(
+      (lead) => lead._id
+    );
+
+    // =====================================================
+    // ASSIGN LEADS
+    // =====================================================
+
+    const updateResult = await TalentCorner.updateMany(
+      {
+        _id: { $in: validLeadIds },
+      },
+      {
+        $set: {
+          assignedTo: assignedHR._id,
+        },
+      }
+    );
+
+    // =====================================================
+    // AUDIT LOG
+    // =====================================================
+
+    await AuditLog.create({
+      action: "UPDATE_TALENT_SUBMISSION",
+
+      details:
+        `${updateResult.modifiedCount} Talent Corner lead(s) ` +
+        `assigned from '${currentUserId}' to ` +
+        `'${assignedHR._id}' by '${req.user.role}'.`,
+
+      performedBy: currentUserId,
+    });
+
+    // =====================================================
+    // FETCH UPDATED LEADS
+    // =====================================================
+
+    const updatedLeads = await TalentCorner.find({
+      _id: { $in: validLeadIds },
+    })
+      .populate("hrId", "name")
+      .populate("assignedTo", "name");
+
+    // =====================================================
+    // RESPONSE
+    // =====================================================
+
+    return res.status(200).json({
+      success: true,
+
+      message:
+        `${updateResult.modifiedCount} Talent Corner lead(s) ` +
+        `assigned successfully.`,
+
+      assignedCount: updateResult.modifiedCount,
+
+      data: updatedLeads,
+    });
+  } catch (error) {
+    console.error(
+      "Assign Talent Corner Error:",
+      error
+    );
+
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };

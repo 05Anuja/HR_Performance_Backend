@@ -306,42 +306,99 @@ exports.uploadAndDistribute = async (req, res) => {
       source,
       skipDuplicates,
     } = req.body;
-    const listId = providedListId || req.body.listId || req.params.id;
-    const shouldSkipDuplicates =
-      skipDuplicates === true || skipDuplicates === "true";
 
-    if (!listId || !mongoose.Types.ObjectId.isValid(listId)) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      return res.status(400).json({ message: "A valid listId is required." });
+    const listId =
+      providedListId ||
+      req.body.listId ||
+      req.params.id;
+
+    const shouldSkipDuplicates =
+      skipDuplicates === true ||
+      skipDuplicates === "true";
+
+    // =====================================================
+    // VALIDATE LIST ID
+    // =====================================================
+
+    if (
+      !listId ||
+      !mongoose.Types.ObjectId.isValid(listId)
+    ) {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      return res.status(400).json({
+        message: "A valid listId is required.",
+      });
     }
+
+    // =====================================================
+    // FIND LIST
+    // =====================================================
 
     const list = await List.findById(listId);
+
     if (!list) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      return res.status(404).json({ message: "Lead List not found." });
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      return res.status(404).json({
+        message: "Lead List not found.",
+      });
     }
 
+    // =====================================================
+    // CHECK CAMPAIGN
+    // =====================================================
+
     const campaign = list.campaign;
+
     if (!campaign) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
       return res.status(400).json({
         message:
           "This list has no campaign attached. Please update the list with a campaign first.",
       });
     }
 
-    // Parse CSV or Excel file
+    // =====================================================
+    // PARSE CSV / EXCEL FILE
+    // =====================================================
+
     const leadsArray = await parseLeadFile(filePath);
-    if (!leadsArray || leadsArray.length === 0) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      return res
-        .status(400)
-        .json({ message: "The uploaded file contains no data rows." });
+
+    if (
+      !leadsArray ||
+      leadsArray.length === 0
+    ) {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      return res.status(400).json({
+        message:
+          "The uploaded file contains no data rows.",
+      });
     }
 
-    const campaignNormalized = campaign.toLowerCase().replace(/[\s_]+/g, "");
+    // =====================================================
+    // DETERMINE CAMPAIGN MODEL
+    // =====================================================
+
+    const campaignNormalized = campaign
+      .toLowerCase()
+      .replace(/[\s_]+/g, "");
+
     let TargetModel = null;
-    if (campaignNormalized.includes("silgate")) {
+
+    if (
+      campaignNormalized.includes("silgate")
+    ) {
       TargetModel = Silgate;
     } else if (
       campaignNormalized.includes("talent") ||
@@ -349,182 +406,401 @@ exports.uploadAndDistribute = async (req, res) => {
     ) {
       TargetModel = TalentCorner;
     } else {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
       return res.status(400).json({
-        message: `Unsupported campaign type '${campaign}'. Leads can only be imported to 'Silgate' or 'Talent Corner'.`,
+        message:
+          `Unsupported campaign type '${campaign}'. ` +
+          `Leads can only be imported to 'Silgate' or 'Talent Corner'.`,
       });
     }
 
-    // Phase 1: Validate phone format and check intra-file duplicate phones
+    // =====================================================
+    // PHASE 1:
+    // VALIDATE PHONE NUMBERS
+    // CHECK DUPLICATES INSIDE FILE
+    // =====================================================
+
     const filePhoneMap = new Map();
     const uniquePhonesFromFile = new Set();
+
     const rowsToProcess = [];
     const duplicateRecords = [];
+
     let intraFileDuplicatesCount = 0;
 
-    for (const [index, lead] of leadsArray.entries()) {
+    for (
+      const [index, lead]
+      of leadsArray.entries()
+    ) {
       const rowNum = index + 2;
+
       const rawPhone = String(
         lead.candidatePhone ||
         lead.candidatephone ||
         lead.phone ||
         lead.mobile ||
         lead.contact ||
-        "",
+        ""
       ).replace(/\D/g, "");
 
-      if (!rawPhone || rawPhone.length !== 10) {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      // ===================================================
+      // PHONE VALIDATION
+      // ===================================================
+
+      if (
+        !rawPhone ||
+        rawPhone.length !== 10
+      ) {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+
         return res.status(400).json({
-          message: `Invalid or missing 10-digit mobile number at row ${rowNum} (${lead.candidatePhone || lead.phone || "empty"}).`,
+          message:
+            `Invalid or missing 10-digit mobile number at row ${rowNum} ` +
+            `(${lead.candidatePhone || lead.phone || "empty"}).`,
         });
       }
 
+      // ===================================================
+      // FILE DUPLICATE CHECK
+      // ===================================================
+
       if (filePhoneMap.has(rawPhone)) {
-        const originalRow = filePhoneMap.get(rawPhone);
+        const originalRow =
+          filePhoneMap.get(rawPhone);
+
         duplicateRecords.push({
           phone: rawPhone,
           rowNum,
           type: "file",
-          details: `Duplicate in uploaded file (first seen at row ${originalRow})`,
+          details:
+            `Duplicate in uploaded file (first seen at row ${originalRow})`,
         });
+
         intraFileDuplicatesCount++;
+
         continue;
       }
 
-      filePhoneMap.set(rawPhone, rowNum);
-      uniquePhonesFromFile.add(rawPhone);
-      rowsToProcess.push({ lead, rawPhone, rowNum });
+      filePhoneMap.set(
+        rawPhone,
+        rowNum
+      );
+
+      uniquePhonesFromFile.add(
+        rawPhone
+      );
+
+      rowsToProcess.push({
+        lead,
+        rawPhone,
+        rowNum,
+      });
     }
 
-    // Phase 2: Check database duplicate phones
-    const phonesToCheck = Array.from(uniquePhonesFromFile);
-    const existingDbDocs = await TargetModel.find({
-      candidatePhone: { $in: phonesToCheck },
-    }).select("candidatePhone");
+    // =====================================================
+    // PHASE 2:
+    // CHECK DATABASE DUPLICATES
+    // =====================================================
 
-    const existingDbPhonesSet = new Set(
-      existingDbDocs.map((doc) => doc.candidatePhone),
-    );
+    const phonesToCheck =
+      Array.from(uniquePhonesFromFile);
+
+    const existingDbDocs =
+      await TargetModel.find({
+        candidatePhone: {
+          $in: phonesToCheck,
+        },
+      }).select("candidatePhone");
+
+    const existingDbPhonesSet =
+      new Set(
+        existingDbDocs.map(
+          (doc) => doc.candidatePhone
+        )
+      );
+
     let dbDuplicatesCount = 0;
+
     const finalLeadsToInsert = [];
 
-    for (const item of rowsToProcess) {
-      if (existingDbPhonesSet.has(item.rawPhone)) {
+    for (
+      const item of rowsToProcess
+    ) {
+      if (
+        existingDbPhonesSet.has(
+          item.rawPhone
+        )
+      ) {
         duplicateRecords.push({
           phone: item.rawPhone,
           rowNum: item.rowNum,
           type: "database",
-          details: "Already exists in database",
+          details:
+            "Already exists in database",
         });
+
         dbDuplicatesCount++;
+
         continue;
       }
+
       finalLeadsToInsert.push(item);
     }
 
-    const skippedCount = intraFileDuplicatesCount + dbDuplicatesCount;
+    const skippedCount =
+      intraFileDuplicatesCount +
+      dbDuplicatesCount;
 
-    // If duplicates exist and skipDuplicates is false (default behavior), reject with detailed message
-    if (!shouldSkipDuplicates && duplicateRecords.length > 0) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      const duplicateSummary = duplicateRecords
-        .map(
-          (d) =>
-            `Row ${d.rowNum} (${d.phone}): ${d.type === "file"
-              ? `duplicate in file (first seen at row ${filePhoneMap.get(d.phone)})`
-              : "already exists in database"
-            }`,
-        )
-        .join("; ");
+    // =====================================================
+    // REJECT DUPLICATES IF skipDuplicates = false
+    // =====================================================
+
+    if (
+      !shouldSkipDuplicates &&
+      duplicateRecords.length > 0
+    ) {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      const duplicateSummary =
+        duplicateRecords
+          .map(
+            (d) =>
+              `Row ${d.rowNum} (${d.phone}): ` +
+              `${d.type === "file"
+                ? `duplicate in file (first seen at row ${filePhoneMap.get(
+                  d.phone
+                )})`
+                : "already exists in database"
+              }`
+          )
+          .join("; ");
 
       return res.status(400).json({
-        message: `Duplicate lead(s) found: ${duplicateSummary}.`,
-        duplicateCount: duplicateRecords.length,
-        duplicates: duplicateRecords,
+        message:
+          `Duplicate lead(s) found: ${duplicateSummary}.`,
+
+        duplicateCount:
+          duplicateRecords.length,
+
+        duplicates:
+          duplicateRecords,
       });
     }
 
-    // Parse user selection for distribution
+    // =====================================================
+    // PARSE SELECTED USERS
+    // =====================================================
+
     let userIds = [];
+
     if (selectedUserIds) {
-      if (Array.isArray(selectedUserIds)) {
-        userIds = selectedUserIds;
-      } else if (typeof selectedUserIds === "string") {
+      if (
+        Array.isArray(selectedUserIds)
+      ) {
+        userIds =
+          selectedUserIds;
+      } else if (
+        typeof selectedUserIds === "string"
+      ) {
         try {
-          userIds = JSON.parse(selectedUserIds);
+          userIds =
+            JSON.parse(
+              selectedUserIds
+            );
         } catch (e) {
-          userIds = selectedUserIds
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean);
+          userIds =
+            selectedUserIds
+              .split(",")
+              .map((s) =>
+                s.trim()
+              )
+              .filter(Boolean);
         }
       }
     }
 
+    // =====================================================
+    // GET SELECTED USERS
+    // =====================================================
+
     let selectedUsers = [];
+
     if (userIds.length > 0) {
-      selectedUsers = await User.find({ _id: { $in: userIds } }).select(
-        "_id name email role",
-      );
-      if (!selectedUsers.length) {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        return res.status(404).json({ message: "Selected users not found." });
-      }
-    }
+      selectedUsers =
+        await User.find({
+          _id: {
+            $in: userIds,
+          },
+        }).select(
+          "_id name email role"
+        );
 
-    let assignedUserId = null;
-    if (assignedTo !== undefined && assignedTo !== null && assignedTo !== "") {
-      if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        return res.status(400).json({ message: "Invalid assignedTo user ID." });
-      }
+      if (
+        !selectedUsers.length
+      ) {
+        if (
+          fs.existsSync(filePath)
+        ) {
+          fs.unlinkSync(filePath);
+        }
 
-      const assignedUser = await User.findOne({
-        _id: assignedTo,
-        role: "hr",
-      }).select("_id");
-      if (!assignedUser) {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         return res.status(404).json({
-          message: "The assignedTo user was not found or is not an HR user.",
+          message:
+            "Selected users not found.",
         });
       }
-      assignedUserId = assignedUser._id;
     }
 
-    const effectiveSource = leadsource || source || "File Upload";
+    // =====================================================
+    // VALIDATE assignedTo
+    // =====================================================
+
+    let assignedUserId = null;
+
+    if (
+      assignedTo !== undefined &&
+      assignedTo !== null &&
+      assignedTo !== ""
+    ) {
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          assignedTo
+        )
+      ) {
+        if (
+          fs.existsSync(filePath)
+        ) {
+          fs.unlinkSync(filePath);
+        }
+
+        return res.status(400).json({
+          message:
+            "Invalid assignedTo user ID.",
+        });
+      }
+
+      const assignedUser =
+        await User.findOne({
+          _id: assignedTo,
+          role: "hr",
+        }).select("_id");
+
+      if (!assignedUser) {
+        if (
+          fs.existsSync(filePath)
+        ) {
+          fs.unlinkSync(filePath);
+        }
+
+        return res.status(404).json({
+          message:
+            "The assignedTo user was not found or is not an HR user.",
+        });
+      }
+
+      assignedUserId =
+        assignedUser._id;
+    }
+
+    // =====================================================
+    // SOURCE
+    // =====================================================
+
+    const effectiveSource =
+      leadsource ||
+      source ||
+      "File Upload";
+
+    // =====================================================
+    // AUTO DISTRIBUTION
+    // =====================================================
+
     let userIndex = 0;
-    const isAutoDistribute = selectedUsers.length > 0;
+
+    const isAutoDistribute =
+      selectedUsers.length > 0;
 
     const getAssignedUserId = () => {
       if (isAutoDistribute) {
-        const user = selectedUsers[userIndex];
-        userIndex = (userIndex + 1) % selectedUsers.length;
+        const user =
+          selectedUsers[
+          userIndex
+          ];
+
+        userIndex =
+          (userIndex + 1) %
+          selectedUsers.length;
+
         return user._id;
       }
-      return list.user_id || req.user.id;
+
+      return (
+        list.user_id ||
+        req.user.id
+      );
     };
+
+    // =====================================================
+    // INSERTED DOCUMENTS
+    // =====================================================
 
     let insertedDocs = [];
 
+    // =====================================================
     // CAMPAIGN 1: SILGATE
-    if (campaignNormalized.includes("silgate")) {
+    // =====================================================
+
+    if (
+      campaignNormalized.includes(
+        "silgate"
+      )
+    ) {
       const newLeads = [];
 
-      for (const { lead, rawPhone, rowNum } of finalLeadsToInsert) {
+      for (
+        const {
+          lead,
+          rawPhone,
+          rowNum,
+        } of finalLeadsToInsert
+      ) {
+        // ===============================================
+        // CANDIDATE NAME
+        // ===============================================
+
         const candidateName =
           lead.candidateName ||
           lead.candidatename ||
           lead.name ||
           lead.candidate ||
           "";
-        if (!candidateName || !candidateName.trim()) {
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+        if (
+          !candidateName ||
+          !candidateName.trim()
+        ) {
+          if (
+            fs.existsSync(filePath)
+          ) {
+            fs.unlinkSync(filePath);
+          }
+
           return res.status(400).json({
-            message: `Candidate Name is required at row ${rowNum} for Silgate.`,
+            message:
+              `Candidate Name is required at row ${rowNum} for Silgate.`,
           });
         }
+
+        // ===============================================
+        // DESIGNATION
+        // ===============================================
 
         const candidateDesignation =
           lead.candidateDesignation ||
@@ -532,130 +808,401 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.designation ||
           lead.role ||
           "";
-        if (!candidateDesignation || !candidateDesignation.trim()) {
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+        if (
+          !candidateDesignation ||
+          !candidateDesignation.trim()
+        ) {
+          if (
+            fs.existsSync(filePath)
+          ) {
+            fs.unlinkSync(filePath);
+          }
+
           return res.status(400).json({
-            message: `Candidate Designation is required at row ${rowNum} for Silgate.`,
+            message:
+              `Candidate Designation is required at row ${rowNum} for Silgate.`,
           });
         }
 
-        const language = lead.language || lead.lang || "Hindi";
-        const disposition = lead.disposition || "New Lead";
+        // ===============================================
+        // LANGUAGE
+        // ===============================================
+
+        const language =
+          lead.language ||
+          lead.lang ||
+          "Hindi";
+
+        // ===============================================
+        // DISPOSITION
+        // ===============================================
+
+        const disposition =
+          lead.disposition ||
+          "New Lead";
+
+        // ===============================================
+        // LOCATION
+        // ===============================================
+
         const candidateLocation =
           lead.candidateLocation ||
           lead.candidatelocation ||
           lead.location ||
           lead.city ||
           "";
-        const itemSource = lead.source || effectiveSource;
-        const resumeStatus = ["Sent", "Not Sent"].includes(
-          lead.resumeStatus || lead.resumestatus,
-        )
-          ? lead.resumeStatus || lead.resumestatus
-          : "Not Sent";
+
+        // ===============================================
+        // SOURCE
+        // ===============================================
+
+        const itemSource =
+          lead.source ||
+          effectiveSource;
+
+        // ===============================================
+        // RESUME STATUS
+        // ===============================================
+
+        const resumeStatus =
+          [
+            "Sent",
+            "Not Sent",
+          ].includes(
+            lead.resumeStatus ||
+            lead.resumestatus
+          )
+            ? lead.resumeStatus ||
+            lead.resumestatus
+            : "Not Sent";
+
+        // ===============================================
+        // EXPERIENCE
+        // ===============================================
 
         const experience =
-          lead.experience || lead.Experience || lead.experienceStatus;
+          lead.experience ||
+          lead.Experience ||
+          lead.experienceStatus ||
+          lead.experiencestatus;
 
-        if (!["Experienced", "Fresher"].includes(experience)) {
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        if (
+          ![
+            "Experienced",
+            "Fresher",
+          ].includes(experience)
+        ) {
+          if (
+            fs.existsSync(filePath)
+          ) {
+            fs.unlinkSync(filePath);
+          }
 
           return res.status(400).json({
-            message: `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
+            message:
+              `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
           });
         }
+
+        // ===============================================
+        // CREATE SILGATE LEAD
+        // ===============================================
+
         newLeads.push({
-          hrId: getAssignedUserId(),
-          assignedTo: assignedUserId,
-          candidateName: candidateName.trim(),
-          candidatePhone: rawPhone,
-          candidateLocation: candidateLocation ? candidateLocation.trim() : "",
-          language: language.trim(),
-          disposition: disposition.trim(),
-          source: itemSource.trim(),
-          candidateDesignation: candidateDesignation.trim(),
+          hrId:
+            getAssignedUserId(),
+
+          assignedTo:
+            assignedUserId,
+
+          candidateName:
+            candidateName.trim(),
+
+          candidatePhone:
+            rawPhone,
+
+          candidateLocation:
+            candidateLocation
+              ? candidateLocation.trim()
+              : "",
+
+          language:
+            language.trim(),
+
+          disposition:
+            disposition.trim(),
+
+          source:
+            itemSource.trim(),
+
+          candidateDesignation:
+            candidateDesignation.trim(),
+
           resumeStatus,
-          experience, // ✅ ADD THIS
-          listId: list._id,
+
+          experience,
+
+          listId:
+            list._id,
         });
       }
 
-      if (newLeads.length > 0) {
-        insertedDocs = await Silgate.insertMany(newLeads);
+      // ===============================================
+      // INSERT SILGATE LEADS
+      // ===============================================
+
+      if (
+        newLeads.length > 0
+      ) {
+        insertedDocs =
+          await Silgate.insertMany(
+            newLeads
+          );
       }
     }
+
+    // =====================================================
     // CAMPAIGN 2: TALENT CORNER
+    // =====================================================
+
     else if (
-      campaignNormalized.includes("talent") ||
-      campaignNormalized.includes("corner")
+      campaignNormalized.includes(
+        "talent"
+      ) ||
+      campaignNormalized.includes(
+        "corner"
+      )
     ) {
       const newLeads = [];
 
-      for (const { lead, rawPhone, rowNum } of finalLeadsToInsert) {
+      for (
+        const {
+          lead,
+          rawPhone,
+          rowNum,
+        } of finalLeadsToInsert
+      ) {
+        // ===============================================
+        // CANDIDATE DESIGNATION
+        // ===============================================
+
         const candidateDesignation =
           lead.candidateDesignation ||
           lead.candidatedesignation ||
           lead.designation ||
           lead.role ||
           "";
-        if (!candidateDesignation || !candidateDesignation.trim()) {
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+        if (
+          !candidateDesignation ||
+          !candidateDesignation.trim()
+        ) {
+          if (
+            fs.existsSync(filePath)
+          ) {
+            fs.unlinkSync(filePath);
+          }
+
           return res.status(400).json({
-            message: `Candidate Designation is required at row ${rowNum} for Talent Corner.`,
+            message:
+              `Candidate Designation is required at row ${rowNum} for Talent Corner.`,
           });
         }
 
+        // ===============================================
+        // CANDIDATE NAME
+        // ===============================================
+
         const candidateName =
-          lead.candidateName || lead.candidatename || lead.name || "";
+          lead.candidateName ||
+          lead.candidatename ||
+          lead.name ||
+          "";
+
+        // ===============================================
+        // CANDIDATE LOCATION
+        // ===============================================
+
         const candidateLocation =
           lead.candidateLocation ||
           lead.candidatelocation ||
           lead.location ||
           lead.city ||
           "";
+
+        // ===============================================
+        // COMPANY NAME
+        // ===============================================
+
         const companyName =
-          lead.companyName || lead.companyname || lead.company || "";
+          lead.companyName ||
+          lead.companyname ||
+          lead.company ||
+          "";
+
+        // ===============================================
+        // INTERVIEW STATUS
+        // ===============================================
+
         const interviewStatus =
-          lead.interviewStatus || lead.interviewstatus || lead.status || "";
-        const itemSource = lead.source || effectiveSource;
-        const resumeStatus = ["Sent", "Not Sent"].includes(
-          lead.resumeStatus || lead.resumestatus,
-        )
-          ? lead.resumeStatus || lead.resumestatus
-          : "Not Sent";
+          lead.interviewStatus ||
+          lead.interviewstatus ||
+          lead.status ||
+          "";
+
+        // ===============================================
+        // SOURCE
+        // ===============================================
+
+        const itemSource =
+          lead.source ||
+          effectiveSource;
+
+        // ===============================================
+        // RESUME STATUS
+        // ===============================================
+
+        const resumeStatus =
+          [
+            "Sent",
+            "Not Sent",
+          ].includes(
+            lead.resumeStatus ||
+            lead.resumestatus
+          )
+            ? lead.resumeStatus ||
+            lead.resumestatus
+            : "Not Sent";
+
+        // ===============================================
+        // EXPERIENCE
+        // ===============================================
+
+        const experience =
+          lead.experience ||
+          lead.Experience ||
+          lead.experienceStatus ||
+          lead.experiencestatus;
+
+        if (
+          ![
+            "Experienced",
+            "Fresher",
+          ].includes(experience)
+        ) {
+          if (
+            fs.existsSync(filePath)
+          ) {
+            fs.unlinkSync(filePath);
+          }
+
+          return res.status(400).json({
+            message:
+              `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Talent Corner.`,
+          });
+        }
+
+        // ===============================================
+        // CREATE TALENT CORNER LEAD
+        // ===============================================
 
         newLeads.push({
-          hrId: getAssignedUserId(),
-          assignedTo: assignedUserId,
-          candidateName: candidateName ? candidateName.trim() : "",
-          candidatePhone: rawPhone,
-          candidateLocation: candidateLocation ? candidateLocation.trim() : "",
-          candidateDesignation: candidateDesignation.trim(),
-          source: itemSource ? itemSource.trim() : "",
-          companyName: companyName ? companyName.trim() : "",
-          interviewStatus: interviewStatus ? interviewStatus.trim() : "",
+          hrId:
+            getAssignedUserId(),
+
+          assignedTo:
+            assignedUserId,
+
+          candidateName:
+            candidateName
+              ? candidateName.trim()
+              : "",
+
+          candidatePhone:
+            rawPhone,
+
+          candidateLocation:
+            candidateLocation
+              ? candidateLocation.trim()
+              : "",
+
+          candidateDesignation:
+            candidateDesignation.trim(),
+
+          source:
+            itemSource
+              ? itemSource.trim()
+              : "",
+
+          companyName:
+            companyName
+              ? companyName.trim()
+              : "",
+
+          interviewStatus:
+            interviewStatus
+              ? interviewStatus.trim()
+              : "",
+
           resumeStatus,
-          listId: list._id,
+
+          // IMPORTANT:
+          // Talent Corner requires experience
+          experience,
+
+          listId:
+            list._id,
         });
       }
 
-      if (newLeads.length > 0) {
-        insertedDocs = await TalentCorner.insertMany(newLeads);
+      // ===============================================
+      // INSERT TALENT CORNER LEADS
+      // ===============================================
+
+      if (
+        newLeads.length > 0
+      ) {
+        insertedDocs =
+          await TalentCorner.insertMany(
+            newLeads
+          );
       }
     }
 
-    // Clean up uploaded temporary file
-    if (fs.existsSync(filePath)) {
+    // =====================================================
+    // CLEAN UP UPLOADED FILE
+    // =====================================================
+
+    if (
+      fs.existsSync(filePath)
+    ) {
       fs.unlinkSync(filePath);
     }
 
-    // Record Audit Log
+    // =====================================================
+    // AUDIT LOG
+    // =====================================================
+
     await AuditLog.create({
       action: "UPLOAD_LEADS",
-      details: `${insertedDocs.length} lead(s) uploaded from CSV/Excel for campaign '${campaign}' under list '${list.name}' by user '${req.user.name}' (${skippedCount} duplicate(s) skipped).`,
-      performedBy: req.user.id,
-      listId: list._id,
+
+      details:
+        `${insertedDocs.length} lead(s) uploaded from CSV/Excel ` +
+        `for campaign '${campaign}' under list '${list.name}' ` +
+        `by user '${req.user.name}' ` +
+        `(${skippedCount} duplicate(s) skipped).`,
+
+      performedBy:
+        req.user.id,
+
+      listId:
+        list._id,
     });
+
+    // =====================================================
+    // DUPLICATE SUMMARY
+    // =====================================================
 
     const duplicateSummary =
       duplicateRecords.length > 0
@@ -663,31 +1210,67 @@ exports.uploadAndDistribute = async (req, res) => {
         duplicateRecords
           .map(
             (d) =>
-              `Row ${d.rowNum} (${d.phone}): ${d.type === "file"
-                ? `duplicate in file (first seen at row ${filePhoneMap.get(d.phone)})`
+              `Row ${d.rowNum} (${d.phone}): ` +
+              `${d.type === "file"
+                ? `duplicate in file (first seen at row ${filePhoneMap.get(
+                  d.phone
+                )})`
                 : "already exists in database"
-              }`,
+              }`
           )
           .join("; ")
         : "";
 
-    res.status(201).json({
+    // =====================================================
+    // FINAL RESPONSE
+    // =====================================================
+
+    return res.status(201).json({
       success: true,
-      message: `${insertedDocs.length} lead(s) imported successfully into "${campaign}" collection in ${isAutoDistribute
-        ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
-        : "Single User Mode"
-        }.${duplicateSummary}`,
-      insertedCount: insertedDocs.length,
+
+      message:
+        `${insertedDocs.length} lead(s) imported successfully ` +
+        `into "${campaign}" collection in ` +
+        `${isAutoDistribute
+          ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
+          : "Single User Mode"
+        }.` +
+        duplicateSummary,
+
+      insertedCount:
+        insertedDocs.length,
+
       skippedCount,
-      duplicates: duplicateRecords,
+
+      duplicates:
+        duplicateRecords,
+
       campaign,
-      data: insertedDocs,
+
+      data:
+        insertedDocs,
     });
   } catch (err) {
-    if (filePath && fs.existsSync(filePath)) {
+    // =====================================================
+    // CLEAN UP FILE ON ERROR
+    // =====================================================
+
+    if (
+      filePath &&
+      fs.existsSync(filePath)
+    ) {
       fs.unlinkSync(filePath);
     }
-    res.status(500).json({ message: err.message });
+
+    console.error(
+      "uploadAndDistribute Error:",
+      err
+    );
+
+    return res.status(500).json({
+      message:
+        err.message,
+    });
   }
 };
 
