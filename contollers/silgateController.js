@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose')
 const Silgate = require("../models/Silgate");
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
@@ -141,64 +141,58 @@ exports.getMySilgateData = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const dateQuery = buildDateFilter(req.query, "createdAt");
-    const andConditions = [];
 
-    if (Object.keys(dateQuery).length > 0) {
-      andConditions.push(dateQuery);
-    }
+    const hrId = req.user.id;
 
-    if (req.user.role !== "superadmin") {
-      andConditions.push({
-        $or: [
-          {
-            hrId: req.user.id,
-            $or: [
-              { assignedTo: null },
-              { assignedTo: { $exists: false } },
-            ],
-          },
-          {
-            assignedTo: req.user.id,
-          },
-        ],
-      });
-    } else {
-      if (req.query.hrId || req.query.hr) {
-        andConditions.push({ hrId: req.query.hrId || req.query.hr });
-      }
-      if (req.query.assignedTo) {
-        andConditions.push({ assignedTo: req.query.assignedTo });
-      }
-    }
+    const query = {
+      $or: [
+        // Leads originally created by this HR
+        // and NOT assigned to someone else
+        {
+          hrId: hrId,
+          $or: [
+            { assignedTo: null },
+            { assignedTo: { $exists: false } },
+          ],
+        },
+
+        // Leads assigned to this HR
+        {
+          assignedTo: hrId,
+        },
+      ],
+      ...dateQuery,
+    };
 
     if (req.query.language) {
-      andConditions.push({ language: req.query.language });
+      query.language = req.query.language;
     }
+
     if (req.query.candidateDesignation) {
-      andConditions.push({ candidateDesignation: req.query.candidateDesignation });
+      query.candidateDesignation = req.query.candidateDesignation;
     } else if (req.query.designation) {
-      andConditions.push({ candidateDesignation: req.query.designation });
+      query.candidateDesignation = req.query.designation;
     }
-    if (req.query.disposition) {
-      andConditions.push({ disposition: req.query.disposition });
-    }
+
     if (req.query.search) {
       const escapedSearch = req.query.search.replace(
         /[-\/\\^$*+?.()|[\]{}]/g,
-        "\\$&",
+        "\\$&"
       );
-      andConditions.push({
-        $or: [
-          { candidateName: { $regex: escapedSearch, $options: "i" } },
-          { candidatePhone: { $regex: escapedSearch, $options: "i" } },
-          { candidateLocation: { $regex: escapedSearch, $options: "i" } },
-        ],
-      });
+
+      query.$and = [
+        {
+          $or: [
+            { candidateName: { $regex: escapedSearch, $options: "i" } },
+            { candidatePhone: { $regex: escapedSearch, $options: "i" } },
+            { candidateLocation: { $regex: escapedSearch, $options: "i" } },
+          ],
+        },
+      ];
     }
 
-    const query = andConditions.length > 0 ? { $and: andConditions } : {};
-
     const total = await Silgate.countDocuments(query);
+
     const data = await Silgate.find(query)
       .populate("hrId", "name")
       .populate("assignedTo", "name")
@@ -213,7 +207,11 @@ exports.getMySilgateData = async (req, res) => {
       totalSubmissions: total,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("getMySilgateData Error:", error);
+
+    res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
@@ -225,49 +223,34 @@ exports.getAllSilgateData = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const dateQuery = buildDateFilter(req.query, "createdAt");
-    const andConditions = [];
-
-    if (Object.keys(dateQuery).length > 0) {
-      andConditions.push(dateQuery);
-    }
+    const query = { ...dateQuery };
 
     if (req.query.language) {
-      andConditions.push({ language: req.query.language });
+      query.language = req.query.language;
     }
     if (req.query.hrId || req.query.hr) {
-      andConditions.push({ hrId: req.query.hrId || req.query.hr });
-    }
-    if (req.query.assignedTo) {
-      andConditions.push({ assignedTo: req.query.assignedTo });
+      query.hrId = req.query.hrId || req.query.hr;
     }
     if (req.query.candidateDesignation) {
-      andConditions.push({ candidateDesignation: req.query.candidateDesignation });
+      query.candidateDesignation = req.query.candidateDesignation;
     } else if (req.query.designation) {
-      andConditions.push({ candidateDesignation: req.query.designation });
-    }
-    if (req.query.disposition) {
-      andConditions.push({ disposition: req.query.disposition });
+      query.candidateDesignation = req.query.designation;
     }
     if (req.query.search) {
       const escapedSearch = req.query.search.replace(
         /[-\/\\^$*+?.()|[\]{}]/g,
         "\\$&",
       );
-      andConditions.push({
-        $or: [
-          { candidateName: { $regex: escapedSearch, $options: "i" } },
-          { candidatePhone: { $regex: escapedSearch, $options: "i" } },
-          { candidateLocation: { $regex: escapedSearch, $options: "i" } },
-        ],
-      });
+      query.$or = [
+        { candidateName: { $regex: escapedSearch, $options: "i" } },
+        { candidatePhone: { $regex: escapedSearch, $options: "i" } },
+        { candidateLocation: { $regex: escapedSearch, $options: "i" } },
+      ];
     }
-
-    const query = andConditions.length > 0 ? { $and: andConditions } : {};
 
     const total = await Silgate.countDocuments(query);
     const data = await Silgate.find(query)
       .populate("hrId", "name")
-      .populate("assignedTo", "name")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -297,33 +280,20 @@ exports.updateSilgate = async (req, res) => {
       candidateDesignation,
       resumeStatus,
       experience,
-      assignedTo,
     } = req.body;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid Silgate submission ID." });
-    }
 
     const silgateLog = await Silgate.findById(id);
     if (!silgateLog) {
       return res.status(404).json({ message: "Silgate submission not found." });
     }
 
-    if (req.user.role !== "superadmin") {
-      const isOwner =
-        silgateLog.hrId &&
-        silgateLog.hrId.toString() === req.user.id &&
-        !silgateLog.assignedTo;
-
-      const isAssigned =
-        silgateLog.assignedTo &&
-        silgateLog.assignedTo.toString() === req.user.id;
-
-      if (!isOwner && !isAssigned) {
-        return res.status(403).json({
-          message: "You are not authorized to update this submission.",
-        });
-      }
+    if (
+      req.user.role !== "superadmin" &&
+      silgateLog.hrId.toString() !== req.user.id
+    ) {
+      return res
+        .status(403)
+        .json({ message: "You are not authorized to update this submission." });
     }
 
     if (candidateName !== undefined) {
@@ -353,6 +323,12 @@ exports.updateSilgate = async (req, res) => {
       }
       silgateLog.language = language.trim();
     }
+    // if (disposition !== undefined) {
+    //   if (!["Interested Lineup", "Not Interested", "No Contact", "Call Back"].includes(disposition)) {
+    //     return res.status(400).json({ message: "Invalid Disposition selection." });
+    //   }
+    //   silgateLog.disposition = disposition;
+    // }
 
     if (disposition !== undefined) {
       if (!disposition || !disposition.trim()) {
@@ -371,6 +347,12 @@ exports.updateSilgate = async (req, res) => {
       silgateLog.disposition = disposition.trim();
     }
 
+    // if (source !== undefined) {
+    //   if (!["Work India", "Reference"].includes(source)) {
+    //     return res.status(400).json({ message: "Invalid Source selection." });
+    //   }
+    //   silgateLog.source = source;
+    // }
     if (source !== undefined) {
       if (source) {
         const sourceExists = await Sources.findOne({
@@ -421,33 +403,6 @@ exports.updateSilgate = async (req, res) => {
       silgateLog.experience = experience;
     }
 
-    // Assignment & Unassignment logic
-    let assignmentAuditDetail = null;
-    if (assignedTo !== undefined && assignedTo !== "undefined") {
-      if (assignedTo === null || assignedTo === "" || assignedTo === "null") {
-        if (silgateLog.assignedTo) {
-          assignmentAuditDetail = "unassigned";
-          silgateLog.assignedTo = null;
-        }
-      } else {
-        if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
-          return res.status(400).json({ message: "Invalid assigned HR." });
-        }
-
-        const assignedHR = await User.findById(assignedTo);
-        if (!assignedHR) {
-          return res.status(404).json({ message: "Assigned HR not found." });
-        }
-
-        if (assignedHR.role !== "hr") {
-          return res.status(400).json({ message: "User is not an HR." });
-        }
-
-        silgateLog.assignedTo = assignedHR._id;
-        assignmentAuditDetail = `assigned to HR '${assignedHR.name}'`;
-      }
-    }
-
     if (req.file) {
       if (silgateLog.resumeFileName) {
         const oldPath = path.join(
@@ -468,22 +423,11 @@ exports.updateSilgate = async (req, res) => {
 
     await silgateLog.save();
 
-    let auditDetails = `Silgate submission id '${silgateLog._id}' was updated by '${req.user.role}'.`;
-    if (assignmentAuditDetail) {
-      auditDetails = `Silgate submission id '${silgateLog._id}' was ${assignmentAuditDetail} by '${req.user.role}'.`;
-    }
-
     await AuditLog.create({
       action: "UPDATE_SILGATE_SUBMISSION",
-      details: auditDetails,
+      details: `Silgate submission id '${silgateLog._id}' was updated by '${req.user.role}'.`,
       performedBy: req.user.id,
-      listId: silgateLog.listId || null,
     });
-
-    await silgateLog.populate([
-      { path: "hrId", select: "name" },
-      { path: "assignedTo", select: "name" },
-    ]);
 
     res.status(200).json({
       message: "Silgate submission updated successfully.",
@@ -498,29 +442,18 @@ exports.updateSilgate = async (req, res) => {
 exports.downloadResume = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid Silgate submission ID." });
-    }
     const silgateLog = await Silgate.findById(id);
     if (!silgateLog || !silgateLog.resumeFileName) {
       return res.status(404).json({ message: "Resume not found." });
     }
 
-    if (req.user.role !== "superadmin") {
-      const isOwner =
-        silgateLog.hrId &&
-        silgateLog.hrId.toString() === req.user.id &&
-        !silgateLog.assignedTo;
-
-      const isAssigned =
-        silgateLog.assignedTo &&
-        silgateLog.assignedTo.toString() === req.user.id;
-
-      if (!isOwner && !isAssigned) {
-        return res
-          .status(403)
-          .json({ message: "You are not authorized to view this resume." });
-      }
+    if (
+      req.user.role !== "superadmin" &&
+      silgateLog.hrId.toString() !== req.user.id
+    ) {
+      return res
+        .status(403)
+        .json({ message: "You are not authorized to view this resume." });
     }
 
     const filePath = path.join(
@@ -555,66 +488,33 @@ exports.exportSilgate = async (req, res) => {
     }
 
     const dateQuery = buildDateFilter(req.query, "createdAt");
-    const andConditions = [];
-
-    if (Object.keys(dateQuery).length > 0) {
-      andConditions.push(dateQuery);
-    }
-
-    if (req.user.role !== "superadmin") {
-      andConditions.push({
-        $or: [
-          {
-            hrId: req.user.id,
-            $or: [
-              { assignedTo: null },
-              { assignedTo: { $exists: false } },
-            ],
-          },
-          {
-            assignedTo: req.user.id,
-          },
-        ],
-      });
-    } else {
-      if (req.query.hrId || req.query.hr) {
-        andConditions.push({ hrId: req.query.hrId || req.query.hr });
-      }
-      if (req.query.assignedTo) {
-        andConditions.push({ assignedTo: req.query.assignedTo });
-      }
-    }
+    const query = { ...dateQuery };
 
     if (req.query.language) {
-      andConditions.push({ language: req.query.language });
+      query.language = req.query.language;
+    }
+    if (req.query.hrId || req.query.hr) {
+      query.hrId = req.query.hrId || req.query.hr;
     }
     if (req.query.candidateDesignation) {
-      andConditions.push({ candidateDesignation: req.query.candidateDesignation });
+      query.candidateDesignation = req.query.candidateDesignation;
     } else if (req.query.designation) {
-      andConditions.push({ candidateDesignation: req.query.designation });
-    }
-    if (req.query.disposition) {
-      andConditions.push({ disposition: req.query.disposition });
+      query.candidateDesignation = req.query.designation;
     }
     if (req.query.search) {
       const escapedSearch = req.query.search.replace(
         /[-\/\\^$*+?.()|[\]{}]/g,
         "\\$&",
       );
-      andConditions.push({
-        $or: [
-          { candidateName: { $regex: escapedSearch, $options: "i" } },
-          { candidatePhone: { $regex: escapedSearch, $options: "i" } },
-          { candidateLocation: { $regex: escapedSearch, $options: "i" } },
-        ],
-      });
+      query.$or = [
+        { candidateName: { $regex: escapedSearch, $options: "i" } },
+        { candidatePhone: { $regex: escapedSearch, $options: "i" } },
+        { candidateLocation: { $regex: escapedSearch, $options: "i" } },
+      ];
     }
-
-    const query = andConditions.length > 0 ? { $and: andConditions } : {};
 
     const submissions = await Silgate.find(query)
       .populate("hrId", "name")
-      .populate("assignedTo", "name")
       .sort({ createdAt: -1 });
 
     const escapeCSV = (val) => {
@@ -640,10 +540,8 @@ exports.exportSilgate = async (req, res) => {
       "Source",
       "Candidate Designation",
       "Resume Status",
-      "Experience",
       "Resume File",
       "Submitted By",
-      "Assigned To",
       "Created At",
     ];
 
@@ -662,7 +560,6 @@ exports.exportSilgate = async (req, res) => {
         escapeCSV(sub.experience),
         escapeCSV(sub.resumeOriginalName || ""),
         escapeCSV(sub.hrId ? sub.hrId.name : "Unknown"),
-        escapeCSV(sub.assignedTo ? sub.assignedTo.name : "Unassigned"),
         escapeCSV(sub.createdAt.toISOString()),
       ];
       csvContent += row.join(",") + "\n";
@@ -678,3 +575,217 @@ exports.exportSilgate = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+exports.assignSilgate = async (req, res) => {
+  try {
+    const { assignedTo, leadIds } = req.body;
+
+    // =====================================================
+    // CURRENT LOGGED-IN USER
+    // =====================================================
+
+    const currentUserId = req.user.id;
+
+    // =====================================================
+    // VALIDATE assignedTo
+    // =====================================================
+
+    if (!assignedTo) {
+      return res.status(400).json({
+        message: "assignedTo is required.",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
+      return res.status(400).json({
+        message: "Invalid assignedTo.",
+      });
+    }
+
+    // =====================================================
+    // VALIDATE leadIds
+    // =====================================================
+
+    if (!Array.isArray(leadIds) || leadIds.length === 0) {
+      return res.status(400).json({
+        message: "At least one leadId is required.",
+      });
+    }
+
+    const invalidLeadIds = leadIds.filter(
+      (leadId) => !mongoose.Types.ObjectId.isValid(leadId)
+    );
+
+    if (invalidLeadIds.length > 0) {
+      return res.status(400).json({
+        message: "One or more lead IDs are invalid.",
+        invalidLeadIds,
+      });
+    }
+
+    // =====================================================
+    // CHECK TARGET HR
+    // =====================================================
+
+    const assignedHR = await User.findOne({
+      _id: assignedTo,
+      role: "hr",
+    }).select("_id name email role");
+
+    if (!assignedHR) {
+      return res.status(404).json({
+        message: "Assigned user was not found or is not an HR.",
+      });
+    }
+
+    // =====================================================
+    // PREVENT ASSIGNING TO SAME HR
+    // =====================================================
+
+    if (currentUserId.toString() === assignedTo.toString()) {
+      return res.status(400).json({
+        message: "Cannot assign leads to yourself.",
+      });
+    }
+
+    // =====================================================
+    // FIND LEADS
+    // =====================================================
+    //
+    // IMPORTANT:
+    //
+    // We DO NOT check:
+    //
+    //     hrId: currentUserId
+    //
+    // because hrId is the ORIGINAL CREATOR.
+    //
+    // Instead:
+    //
+    // 1. If assignedTo is null -> original owner currently
+    //    controls the lead.
+    //
+    // 2. If assignedTo == currentUserId -> current HR
+    //    currently controls the lead.
+    //
+    // =====================================================
+
+    let ownershipCondition;
+
+    if (req.user.role === "superadmin") {
+      // Superadmin can assign any lead.
+      ownershipCondition = {};
+    } else {
+      ownershipCondition = {
+        $or: [
+          {
+            // Lead has never been assigned
+            hrId: currentUserId,
+            $or: [
+              { assignedTo: null },
+              { assignedTo: { $exists: false } },
+            ],
+          },
+
+          {
+            // Lead is currently assigned to logged-in HR
+            assignedTo: currentUserId,
+          },
+        ],
+      };
+    }
+
+    const leads = await Silgate.find({
+      _id: { $in: leadIds },
+      ...ownershipCondition,
+    }).select(
+      "_id hrId assignedTo candidateName"
+    );
+
+    // =====================================================
+    // NO ACCESSIBLE LEADS
+    // =====================================================
+
+    if (leads.length === 0) {
+      return res.status(403).json({
+        message:
+          "You are not authorized to assign the selected leads.",
+      });
+    }
+
+    // =====================================================
+    // GET VALID LEAD IDS
+    // =====================================================
+
+    const validLeadIds = leads.map(
+      (lead) => lead._id
+    );
+
+    // =====================================================
+    // ASSIGN LEADS
+    // =====================================================
+
+    const updateResult = await Silgate.updateMany(
+      {
+        _id: { $in: validLeadIds },
+      },
+      {
+        $set: {
+          assignedTo: assignedHR._id,
+        },
+      }
+    );
+
+    // =====================================================
+    // AUDIT LOG
+    // =====================================================
+
+    await AuditLog.create({
+      action: "UPDATE_SILGATE_SUBMISSION",
+
+      details:
+        `${updateResult.modifiedCount} Silgate lead(s) ` +
+        `assigned from '${currentUserId}' to ` +
+        `'${assignedHR._id}' by '${req.user.role}'.`,
+
+      performedBy: currentUserId,
+    });
+
+    // =====================================================
+    // FETCH UPDATED LEADS
+    // =====================================================
+
+    const updatedLeads = await Silgate.find({
+      _id: { $in: validLeadIds },
+    })
+      .populate("hrId", "name")
+      .populate("assignedTo", "name");
+
+    // =====================================================
+    // RESPONSE
+    // =====================================================
+
+    return res.status(200).json({
+      success: true,
+
+      message:
+        `${updateResult.modifiedCount} Silgate lead(s) ` +
+        `assigned successfully.`,
+
+      assignedCount: updateResult.modifiedCount,
+
+      data: updatedLeads,
+    });
+  } catch (error) {
+    console.error(
+      "Assign Silgate Error:",
+      error
+    );
+
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+

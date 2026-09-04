@@ -366,11 +366,11 @@ exports.uploadAndDistribute = async (req, res) => {
       const rowNum = index + 2;
       const rawPhone = String(
         lead.candidatePhone ||
-          lead.candidatephone ||
-          lead.phone ||
-          lead.mobile ||
-          lead.contact ||
-          "",
+        lead.candidatephone ||
+        lead.phone ||
+        lead.mobile ||
+        lead.contact ||
+        "",
       ).replace(/\D/g, "");
 
       if (!rawPhone || rawPhone.length !== 10) {
@@ -431,10 +431,9 @@ exports.uploadAndDistribute = async (req, res) => {
       const duplicateSummary = duplicateRecords
         .map(
           (d) =>
-            `Row ${d.rowNum} (${d.phone}): ${
-              d.type === "file"
-                ? `duplicate in file (first seen at row ${filePhoneMap.get(d.phone)})`
-                : "already exists in database"
+            `Row ${d.rowNum} (${d.phone}): ${d.type === "file"
+              ? `duplicate in file (first seen at row ${filePhoneMap.get(d.phone)})`
+              : "already exists in database"
             }`,
         )
         .join("; ");
@@ -555,6 +554,16 @@ exports.uploadAndDistribute = async (req, res) => {
           ? lead.resumeStatus || lead.resumestatus
           : "Not Sent";
 
+        const experience =
+          lead.experience || lead.Experience || lead.experienceStatus;
+
+        if (!["Experienced", "Fresher"].includes(experience)) {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+          return res.status(400).json({
+            message: `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
+          });
+        }
         newLeads.push({
           hrId: getAssignedUserId(),
           assignedTo: assignedUserId,
@@ -566,6 +575,7 @@ exports.uploadAndDistribute = async (req, res) => {
           source: itemSource.trim(),
           candidateDesignation: candidateDesignation.trim(),
           resumeStatus,
+          experience, // ✅ ADD THIS
           listId: list._id,
         });
       }
@@ -650,25 +660,23 @@ exports.uploadAndDistribute = async (req, res) => {
     const duplicateSummary =
       duplicateRecords.length > 0
         ? ` ${duplicateRecords.length} duplicate lead(s) skipped: ` +
-          duplicateRecords
-            .map(
-              (d) =>
-                `Row ${d.rowNum} (${d.phone}): ${
-                  d.type === "file"
-                    ? `duplicate in file (first seen at row ${filePhoneMap.get(d.phone)})`
-                    : "already exists in database"
-                }`,
-            )
-            .join("; ")
+        duplicateRecords
+          .map(
+            (d) =>
+              `Row ${d.rowNum} (${d.phone}): ${d.type === "file"
+                ? `duplicate in file (first seen at row ${filePhoneMap.get(d.phone)})`
+                : "already exists in database"
+              }`,
+          )
+          .join("; ")
         : "";
 
     res.status(201).json({
       success: true,
-      message: `${insertedDocs.length} lead(s) imported successfully into "${campaign}" collection in ${
-        isAutoDistribute
-          ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
-          : "Single User Mode"
-      }.${duplicateSummary}`,
+      message: `${insertedDocs.length} lead(s) imported successfully into "${campaign}" collection in ${isAutoDistribute
+        ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
+        : "Single User Mode"
+        }.${duplicateSummary}`,
       insertedCount: insertedDocs.length,
       skippedCount,
       duplicates: duplicateRecords,
@@ -728,6 +736,7 @@ exports.downloadSampleFile = async (req, res) => {
         "Source",
         "Candidate Designation",
         "Resume Status",
+        "Experience"
       ];
 
       let csvContent = headers.map(escapeCSV).join(",") + "\n";
@@ -751,6 +760,7 @@ exports.downloadSampleFile = async (req, res) => {
         "Company Name",
         "Interview Status",
         "Resume Status",
+        "Experience"
       ];
 
       let csvContent = headers.map(escapeCSV).join(",") + "\n";
