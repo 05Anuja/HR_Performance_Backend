@@ -11,6 +11,7 @@ const silgateSchema = new mongoose.Schema(
     candidateName: { type: String, required: true },
     candidatePhone: {
       type: String,
+      unique: true,
       required: true,
       validate: {
         validator: function (v) {

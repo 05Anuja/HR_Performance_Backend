@@ -25,6 +25,7 @@ const talentCornerSchema = new mongoose.Schema(
     candidatePhone: {
       type: String,
       required: true,
+      unique: true,
       validate: {
         validator: function (v) {
           return /^\d{10}$/.test(v);

@@ -369,14 +369,14 @@ exports.updateTalent = async (req, res) => {
         .json({ message: "Talent Corner submission not found." });
     }
 
-    if (
-      req.user.role !== "superadmin" &&
-      talentLog.hrId.toString() !== req.user.id
-    ) {
-      return res
-        .status(403)
-        .json({ message: "You are not authorized to update this submission." });
-    }
+    // if (
+    //   req.user.role !== "superadmin" &&
+    //   talentLog.hrId.toString() !== req.user.id
+    // ) {
+    //   return res
+    //     .status(403)
+    //     .json({ message: "You are not authorized to update this submission." });
+    // }
 
     if (candidateName !== undefined) {
       talentLog.candidateName = candidateName ? candidateName.trim() : "";
@@ -433,6 +433,15 @@ exports.updateTalent = async (req, res) => {
           .json({ message: "A valid 10-digit Candidate's Phone is required." });
       }
       talentLog.candidatePhone = candidatePhone;
+    }
+    const existingCandidatePhone = await TalentCorner.findOne({
+      candidatePhone: candidatePhone,
+      _id: { $ne: id },
+    });
+    if (existingCandidatePhone) {
+      return res.status(400).json({
+        message: "A candidate with this phone number already exists.",
+      });
     }
     if (companyName !== undefined) {
       talentLog.companyName = companyName ? companyName.trim() : "";

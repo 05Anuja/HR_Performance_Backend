@@ -15,7 +15,7 @@ const uploadResume = require("../middleware/uploadResume");
 
 router.post("/add", auth, uploadResume.single("resume"), addSilgate);
 router.get("/myData", auth, getMySilgateData);
-router.get("/allData", auth, checkRole("superadmin"), getAllSilgateData);
+router.get("/allData", auth, checkRole("superadmin", "hr"), getAllSilgateData);
 router.patch("/update/:id", auth, uploadResume.single("resume"), updateSilgate);
 router.get("/export", auth, exportSilgate);
 router.get("/:id/resume", auth, downloadResume);

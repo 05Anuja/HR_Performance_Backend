@@ -42,6 +42,17 @@ exports.addSilgate = async (req, res) => {
         .status(400)
         .json({ message: "A valid 10-digit Candidate's Phone is required." });
     }
+
+    const existingCandidate = await Silgate.findOne({
+      candidatePhone: candidatePhone,
+    });
+
+    if (existingCandidate) {
+      return res.status(400).json({
+        message: "A candidate with this phone number already exists.",
+      });
+    }
+
     if (!language || !language.trim()) {
       return res.status(400).json({ message: "Language is required." });
     }
@@ -270,6 +281,7 @@ exports.getAllSilgateData = async (req, res) => {
 exports.updateSilgate = async (req, res) => {
   try {
     const { id } = req.params;
+
     const {
       candidateName,
       candidatePhone,
@@ -282,159 +294,306 @@ exports.updateSilgate = async (req, res) => {
       experience,
     } = req.body;
 
+    // --------------------------------------------------
+    // 1. Find Silgate submission
+    // --------------------------------------------------
     const silgateLog = await Silgate.findById(id);
+
     if (!silgateLog) {
-      return res.status(404).json({ message: "Silgate submission not found." });
+      return res.status(404).json({
+        message: "Silgate submission not found.",
+      });
     }
 
-    if (
-      req.user.role !== "superadmin" &&
-      silgateLog.hrId.toString() !== req.user.id
-    ) {
-      return res
-        .status(403)
-        .json({ message: "You are not authorized to update this submission." });
+    // --------------------------------------------------
+    // 2. Get logged-in user's information
+    // --------------------------------------------------
+    const userId = req.user?.id?.toString();
+    const userRole = req.user?.role?.toLowerCase();
+
+    // Make sure projects is always treated as an array
+    const userProjects = Array.isArray(req.user?.projects)
+      ? req.user.projects
+      : [];
+
+    // --------------------------------------------------
+    // 3. Debug logs
+    // --------------------------------------------------
+    console.log("====================================");
+    console.log("Silgate Submission ID:", silgateLog._id);
+    console.log("Silgate HRID:", silgateLog.hrId);
+    console.log("Logged-in User ID:", userId);
+    console.log("User Role:", userRole);
+    console.log("User Projects:", userProjects);
+    console.log("====================================");
+
+    // --------------------------------------------------
+    // 4. Authorization
+    // --------------------------------------------------
+    const isSuperAdmin = userRole === "superadmin";
+
+    const hasSilgateAccess =
+      userProjects.some(
+        (project) =>
+          project?.toString().trim().toLowerCase() === "silgate"
+      );
+
+    console.log("Is Super Admin:", isSuperAdmin);
+    console.log("Has Silgate Access:", hasSilgateAccess);
+
+    /*
+      Authorization rule:
+
+      Superadmin
+          OR
+      HR assigned to Silgate project
+
+      can update ANY Silgate submission.
+
+      silgateLog.hrId is NOT checked here.
+    */
+
+    if (!isSuperAdmin && !hasSilgateAccess) {
+      return res.status(403).json({
+        message:
+          "You are not authorized to update Silgate submissions. You must be assigned to the Silgate project.",
+      });
     }
 
+    // --------------------------------------------------
+    // 5. Candidate Name
+    // --------------------------------------------------
     if (candidateName !== undefined) {
-      if (!candidateName.trim()) {
-        return res
-          .status(400)
-          .json({ message: "Candidate's Name is required." });
+      if (
+        typeof candidateName !== "string" ||
+        !candidateName.trim()
+      ) {
+        return res.status(400).json({
+          message: "Candidate's Name is required.",
+        });
       }
+
       silgateLog.candidateName = candidateName.trim();
     }
+
+    // --------------------------------------------------
+    // 6. Candidate Phone
+    // --------------------------------------------------
     if (candidatePhone !== undefined) {
-      if (!/^\d{10}$/.test(candidatePhone)) {
-        return res
-          .status(400)
-          .json({ message: "A valid 10-digit Candidate's Phone is required." });
+      const phone = candidatePhone.toString().trim();
+
+      if (!/^\d{10}$/.test(phone)) {
+        return res.status(400).json({
+          message:
+            "A valid 10-digit Candidate's Phone is required.",
+        });
       }
-      silgateLog.candidatePhone = candidatePhone;
+
+      silgateLog.candidatePhone = phone;
     }
+
+    // --------------------------------------------------
+    // 7. Candidate Location
+    // --------------------------------------------------
     if (candidateLocation !== undefined) {
-      silgateLog.candidateLocation = candidateLocation
-        ? candidateLocation.trim()
-        : "";
-    }
-    if (language !== undefined) {
-      if (!language.trim()) {
-        return res.status(400).json({ message: "Language is required." });
+      if (
+        typeof candidateLocation === "string" &&
+        candidateLocation.trim()
+      ) {
+        silgateLog.candidateLocation =
+          candidateLocation.trim();
+      } else {
+        silgateLog.candidateLocation = "";
       }
+    }
+
+    // --------------------------------------------------
+    // 8. Language
+    // --------------------------------------------------
+    if (language !== undefined) {
+      if (
+        typeof language !== "string" ||
+        !language.trim()
+      ) {
+        return res.status(400).json({
+          message: "Language is required.",
+        });
+      }
+
       silgateLog.language = language.trim();
     }
-    // if (disposition !== undefined) {
-    //   if (!["Interested Lineup", "Not Interested", "No Contact", "Call Back"].includes(disposition)) {
-    //     return res.status(400).json({ message: "Invalid Disposition selection." });
-    //   }
-    //   silgateLog.disposition = disposition;
-    // }
 
+    // --------------------------------------------------
+    // 9. Disposition
+    // --------------------------------------------------
     if (disposition !== undefined) {
-      if (!disposition || !disposition.trim()) {
-        return res.status(400).json({ message: "Disposition is required." });
+      if (
+        typeof disposition !== "string" ||
+        !disposition.trim()
+      ) {
+        return res.status(400).json({
+          message: "Disposition is required.",
+        });
       }
+
+      const trimmedDisposition = disposition.trim();
+
       const dispositionExists = await Disposition.findOne({
-        disposition: disposition.trim(),
+        disposition: trimmedDisposition,
         project: "Silgate",
       });
+
       if (!dispositionExists) {
         return res.status(400).json({
           message:
             "Invalid Disposition selection. The disposition must exist and be assigned to Silgate.",
         });
       }
-      silgateLog.disposition = disposition.trim();
+
+      silgateLog.disposition = trimmedDisposition;
     }
 
-    // if (source !== undefined) {
-    //   if (!["Work India", "Reference"].includes(source)) {
-    //     return res.status(400).json({ message: "Invalid Source selection." });
-    //   }
-    //   silgateLog.source = source;
-    // }
+    // --------------------------------------------------
+    // 10. Source
+    // --------------------------------------------------
     if (source !== undefined) {
-      if (source) {
+      if (source && typeof source === "string") {
+        const trimmedSource = source.trim();
+
         const sourceExists = await Sources.findOne({
-          sourceName: source.trim(),
+          sourceName: trimmedSource,
           project: "Silgate",
         });
+
         if (!sourceExists) {
           return res.status(400).json({
             message:
               "Invalid Source selection. The source must exist and be assigned to Silgate.",
           });
         }
+
+        silgateLog.source = trimmedSource;
+      } else {
+        silgateLog.source = "";
       }
-      silgateLog.source = source || "";
     }
 
+    // --------------------------------------------------
+    // 11. Candidate Designation
+    // --------------------------------------------------
     if (candidateDesignation !== undefined) {
-      if (!candidateDesignation.trim()) {
-        return res
-          .status(400)
-          .json({ message: "Candidate's Designation is required." });
+      if (
+        typeof candidateDesignation !== "string" ||
+        !candidateDesignation.trim()
+      ) {
+        return res.status(400).json({
+          message: "Candidate's Designation is required.",
+        });
       }
+
+      const trimmedDesignation =
+        candidateDesignation.trim();
+
       const designationExists = await Designation.findOne({
-        name: candidateDesignation.trim(),
+        name: trimmedDesignation,
         project: "Silgate",
       });
+
       if (!designationExists) {
         return res.status(400).json({
           message:
             "Invalid Candidate's Designation. The designation must exist and be assigned to Silgate.",
         });
       }
-      silgateLog.candidateDesignation = candidateDesignation.trim();
+
+      silgateLog.candidateDesignation =
+        trimmedDesignation;
     }
+
+    // --------------------------------------------------
+    // 12. Resume Status
+    // --------------------------------------------------
     if (resumeStatus !== undefined) {
       if (!["Sent", "Not Sent"].includes(resumeStatus)) {
-        return res
-          .status(400)
-          .json({ message: "Invalid Resume Status selection." });
+        return res.status(400).json({
+          message: "Invalid Resume Status selection.",
+        });
       }
+
       silgateLog.resumeStatus = resumeStatus;
     }
 
+    // --------------------------------------------------
+    // 13. Experience
+    // --------------------------------------------------
     if (experience !== undefined) {
       if (!["Experienced", "Fresher"].includes(experience)) {
-        return res.status(400).json({ message: "Experience is required." });
+        return res.status(400).json({
+          message:
+            "Experience must be either Experienced or Fresher.",
+        });
       }
+
       silgateLog.experience = experience;
     }
 
+    // --------------------------------------------------
+    // 14. Resume Upload
+    // --------------------------------------------------
     if (req.file) {
+      // Delete old resume
       if (silgateLog.resumeFileName) {
         const oldPath = path.join(
           __dirname,
           "..",
           "uploads",
           "resumes",
-          silgateLog.resumeFileName,
+          silgateLog.resumeFileName
         );
+
         fs.unlink(oldPath, (err) => {
-          if (err && err.code !== "ENOENT")
-            console.error("Failed to delete old resume:", err);
+          if (err && err.code !== "ENOENT") {
+            console.error(
+              "Failed to delete old resume:",
+              err
+            );
+          }
         });
       }
+
+      // Save new resume information
       silgateLog.resumeFileName = req.file.filename;
-      silgateLog.resumeOriginalName = req.file.originalname;
+      silgateLog.resumeOriginalName =
+        req.file.originalname;
     }
 
+    // --------------------------------------------------
+    // 15. Save
+    // --------------------------------------------------
     await silgateLog.save();
 
+    // --------------------------------------------------
+    // 16. Audit Log
+    // --------------------------------------------------
     await AuditLog.create({
       action: "UPDATE_SILGATE_SUBMISSION",
       details: `Silgate submission id '${silgateLog._id}' was updated by '${req.user.role}'.`,
       performedBy: req.user.id,
     });
 
-    res.status(200).json({
+    // --------------------------------------------------
+    // 17. Success Response
+    // --------------------------------------------------
+    return res.status(200).json({
       message: "Silgate submission updated successfully.",
       data: silgateLog,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Update Silgate Error:", error);
+
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
