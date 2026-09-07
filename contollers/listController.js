@@ -77,32 +77,112 @@ exports.createList = async (req, res) => {
  * @route   GET /api/lists
  * @access  Private (Authenticated users)
  */
+// exports.getLists = async (req, res) => {
+//   try {
+//     const { campaign, user_id, search, page = 1, limit = 10 } = req.query;
+
+//     const query = {};
+
+//     if (campaign) {
+//       query.campaign = new RegExp(`^${campaign.trim()}$`, "i");
+//     }
+
+//     if (user_id) {
+//       if (!mongoose.Types.ObjectId.isValid(user_id)) {
+//         return res.status(400).json({ message: "Invalid user_id filter." });
+//       }
+//       query.user_id = user_id;
+//     }
+
+//     if (search) {
+//       query.name = new RegExp(search.trim(), "i");
+//     }
+
+//     const pageNum = parseInt(page, 10) || 1;
+//     const limitNum = parseInt(limit, 10) || 10;
+//     const skip = (pageNum - 1) * limitNum;
+
+//     const totalLists = await List.countDocuments(query);
+//     const lists = await List.find(query)
+//       .populate("user_id", "name email role")
+//       .populate("createdBy", "name email role")
+//       .sort({ createdAt: -1 })
+//       .skip(skip)
+//       .limit(limitNum);
+
+//     res.status(200).json({
+//       data: lists,
+//       currentPage: pageNum,
+//       totalPages: Math.ceil(totalLists / limitNum) || 1,
+//       totalLists,
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+
+
 exports.getLists = async (req, res) => {
   try {
-    const { campaign, user_id, search, page = 1, limit = 10 } = req.query;
+    const {
+      campaign,
+      user_id,
+      search,
+      page = 1,
+      limit = 10,
+    } = req.query;
 
     const query = {};
 
+    // Campaign filter
     if (campaign) {
-      query.campaign = new RegExp(`^${campaign.trim()}$`, "i");
+      query.campaign = new RegExp(
+        `^${campaign.trim()}$`,
+        "i"
+      );
     }
 
+    // User filter
     if (user_id) {
       if (!mongoose.Types.ObjectId.isValid(user_id)) {
-        return res.status(400).json({ message: "Invalid user_id filter." });
+        return res.status(400).json({
+          message: "Invalid user_id filter.",
+        });
       }
+
       query.user_id = user_id;
     }
 
-    if (search) {
-      query.name = new RegExp(search.trim(), "i");
+    // Search filter
+    if (search && search.trim()) {
+      const escapedSearch = search
+        .trim()
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      query.name = new RegExp(
+        escapedSearch,
+        "i"
+      );
     }
 
-    const pageNum = parseInt(page, 10) || 1;
-    const limitNum = parseInt(limit, 10) || 10;
+    // Pagination
+    const pageNum = Math.max(
+      parseInt(page, 10) || 1,
+      1
+    );
+
+    const limitNum = Math.min(
+      Math.max(parseInt(limit, 10) || 10, 1),
+      100
+    );
+
     const skip = (pageNum - 1) * limitNum;
 
-    const totalLists = await List.countDocuments(query);
+    // Total records
+    const totalLists =
+      await List.countDocuments(query);
+
+    // Paginated records
     const lists = await List.find(query)
       .populate("user_id", "name email role")
       .populate("createdBy", "name email role")
@@ -110,14 +190,24 @@ exports.getLists = async (req, res) => {
       .skip(skip)
       .limit(limitNum);
 
-    res.status(200).json({
+    const totalPages =
+      Math.ceil(totalLists / limitNum) || 1;
+
+    return res.status(200).json({
+      success: true,
       data: lists,
       currentPage: pageNum,
-      totalPages: Math.ceil(totalLists / limitNum) || 1,
+      totalPages,
       totalLists,
+      limit: limitNum,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Get Lists Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
