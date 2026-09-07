@@ -9,8 +9,12 @@ const xlsx = require("xlsx");
 const normalizeKeys = (row) => {
   const normalized = {};
   for (const key of Object.keys(row)) {
-    const cleanKey = key.trim().toLowerCase().replace(/[\s_\-]+/g, "");
-    normalized[cleanKey] = typeof row[key] === "string" ? row[key].trim() : row[key];
+    const cleanKey = key
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_\-]+/g, "");
+    normalized[cleanKey] =
+      typeof row[key] === "string" ? row[key].trim() : row[key];
     // Keep original key as well for fallback
     normalized[key] = row[key];
   }
@@ -26,12 +30,16 @@ const parseLeadFile = async (filePath) => {
   const ext = path.extname(filePath).toLowerCase();
 
   let rawRows = [];
+  let headers = [];
 
   if (ext === ".csv") {
     rawRows = await new Promise((resolve, reject) => {
       const rows = [];
       fs.createReadStream(filePath)
         .pipe(csvParser())
+        .on("headers", (csvHeaders) => {
+          headers = csvHeaders;
+        })
         .on("data", (data) => rows.push(data))
         .on("end", () => resolve(rows))
         .on("error", (err) => reject(err));
@@ -40,10 +48,21 @@ const parseLeadFile = async (filePath) => {
     const workbook = xlsx.readFile(filePath);
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
+    // Get the original header row
+    const sheetRows = xlsx.utils.sheet_to_json(worksheet, {
+      header: 1,
+      defval: "",
+    });
+    if (sheetRows.length > 0) {
+      headers = sheetRows[0];
+    }
     rawRows = xlsx.utils.sheet_to_json(worksheet, { defval: "" });
   }
 
-  return rawRows.map(normalizeKeys);
+  return {
+    headers,
+    rows: rawRows.map(normalizeKeys),
+  };
 };
 
 module.exports = parseLeadFile;

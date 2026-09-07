@@ -1,6 +1,6 @@
 const TalentCorner = require("../models/TalentCorner");
 const User = require("../models/User");
-const mongoose = require("mongoose")
+const mongoose = require("mongoose");
 const AuditLog = require("../models/AuditLog");
 const Designation = require("../models/Designation");
 const buildDateFilter = require("../utils/dateFilter");
@@ -99,6 +99,18 @@ exports.addTalent = async (req, res) => {
         .status(400)
         .json({ message: "A valid 10-digit Candidate's Phone is required." });
     }
+
+    const existingTalentCornerPhone = await TalentCorner.findOne({
+      candidatePhone,
+    });
+
+    if (existingTalentCornerPhone) {
+      return res.status(400).json({
+        message:
+          "This Candidate's Phone number already exists in Talent Corner.",
+      });
+    }
+
     if (!resumeStatus || !["Sent", "Not Sent"].includes(resumeStatus)) {
       return res
         .status(400)
@@ -192,10 +204,7 @@ exports.getMyTalentData = async (req, res) => {
       $or: [
         {
           hrId: hrId,
-          $or: [
-            { assignedTo: null },
-            { assignedTo: { $exists: false } },
-          ],
+          $or: [{ assignedTo: null }, { assignedTo: { $exists: false } }],
         },
 
         {
@@ -210,11 +219,9 @@ exports.getMyTalentData = async (req, res) => {
     // =====================================================
 
     if (req.query.candidateDesignation) {
-      query.candidateDesignation =
-        req.query.candidateDesignation;
+      query.candidateDesignation = req.query.candidateDesignation;
     } else if (req.query.designation) {
-      query.candidateDesignation =
-        req.query.designation;
+      query.candidateDesignation = req.query.designation;
     }
 
     // =====================================================
@@ -224,7 +231,7 @@ exports.getMyTalentData = async (req, res) => {
     if (req.query.search) {
       const escapedSearch = req.query.search.replace(
         /[-\/\\^$*+?.()|[\]{}]/g,
-        "\\$&"
+        "\\$&",
       );
 
       query.$and = [
@@ -427,22 +434,27 @@ exports.updateTalent = async (req, res) => {
     }
 
     if (candidatePhone !== undefined) {
+      const phone = candidatePhone.toString().trim();
       if (!/^\d{10}$/.test(candidatePhone)) {
         return res
           .status(400)
           .json({ message: "A valid 10-digit Candidate's Phone is required." });
       }
+
+      const existingTalentCorner = await TalentCorner.findOne({
+        candidatePhone: phone,
+        _id: { $ne: id },
+      });
+
+      if (existingTalentCorner) {
+        return res.status(400).json({
+          message:
+            "This Candidate's Phone number already exists in Talent Corner.",
+        });
+      }
       talentLog.candidatePhone = candidatePhone;
     }
-    const existingCandidatePhone = await TalentCorner.findOne({
-      candidatePhone: candidatePhone,
-      _id: { $ne: id },
-    });
-    if (existingCandidatePhone) {
-      return res.status(400).json({
-        message: "A candidate with this phone number already exists.",
-      });
-    }
+
     if (companyName !== undefined) {
       talentLog.companyName = companyName ? companyName.trim() : "";
     }
@@ -653,7 +665,6 @@ exports.exportTalent = async (req, res) => {
   }
 };
 
-
 exports.assignTalentCorner = async (req, res) => {
   try {
     const { assignedTo, leadIds } = req.body;
@@ -691,7 +702,7 @@ exports.assignTalentCorner = async (req, res) => {
     }
 
     const invalidLeadIds = leadIds.filter(
-      (leadId) => !mongoose.Types.ObjectId.isValid(leadId)
+      (leadId) => !mongoose.Types.ObjectId.isValid(leadId),
     );
 
     if (invalidLeadIds.length > 0) {
@@ -757,10 +768,7 @@ exports.assignTalentCorner = async (req, res) => {
             // Lead was created by this HR and has
             // never been assigned to another HR.
             hrId: currentUserId,
-            $or: [
-              { assignedTo: null },
-              { assignedTo: { $exists: false } },
-            ],
+            $or: [{ assignedTo: null }, { assignedTo: { $exists: false } }],
           },
 
           {
@@ -778,9 +786,7 @@ exports.assignTalentCorner = async (req, res) => {
     const leads = await TalentCorner.find({
       _id: { $in: leadIds },
       ...ownershipCondition,
-    }).select(
-      "_id hrId assignedTo candidateName"
-    );
+    }).select("_id hrId assignedTo candidateName");
 
     // =====================================================
     // NO ACCESSIBLE LEADS
@@ -788,8 +794,7 @@ exports.assignTalentCorner = async (req, res) => {
 
     if (leads.length === 0) {
       return res.status(403).json({
-        message:
-          "You are not authorized to assign the selected leads.",
+        message: "You are not authorized to assign the selected leads.",
       });
     }
 
@@ -797,9 +802,7 @@ exports.assignTalentCorner = async (req, res) => {
     // GET VALID LEAD IDS
     // =====================================================
 
-    const validLeadIds = leads.map(
-      (lead) => lead._id
-    );
+    const validLeadIds = leads.map((lead) => lead._id);
 
     // =====================================================
     // ASSIGN LEADS
@@ -813,7 +816,7 @@ exports.assignTalentCorner = async (req, res) => {
         $set: {
           assignedTo: assignedHR._id,
         },
-      }
+      },
     );
 
     // =====================================================
@@ -857,10 +860,7 @@ exports.assignTalentCorner = async (req, res) => {
       data: updatedLeads,
     });
   } catch (error) {
-    console.error(
-      "Assign Talent Corner Error:",
-      error
-    );
+    console.error("Assign Talent Corner Error:", error);
 
     return res.status(500).json({
       message: error.message,

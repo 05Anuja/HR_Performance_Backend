@@ -288,6 +288,992 @@ exports.deleteList = async (req, res) => {
  * @route   POST /api/lists/import
  * @access  Private (Authenticated users)
  */
+// exports.uploadAndDistribute = async (req, res) => {
+//   if (!req.file) {
+//     return res
+//       .status(400)
+//       .json({ message: "Lead file (.csv or .xlsx) is required." });
+//   }
+
+//   const filePath = req.file.path;
+
+//   try {
+//     const {
+//       listId: providedListId,
+//       selectedUserIds,
+//       assignedTo,
+//       leadsource,
+//       source,
+//       skipDuplicates,
+//     } = req.body;
+
+//     const listId =
+//       providedListId ||
+//       req.body.listId ||
+//       req.params.id;
+
+//     const shouldSkipDuplicates =
+//       skipDuplicates === true ||
+//       skipDuplicates === "true";
+
+//     // =====================================================
+//     // VALIDATE LIST ID
+//     // =====================================================
+
+//     if (
+//       !listId ||
+//       !mongoose.Types.ObjectId.isValid(listId)
+//     ) {
+//       if (fs.existsSync(filePath)) {
+//         fs.unlinkSync(filePath);
+//       }
+
+//       return res.status(400).json({
+//         message: "A valid listId is required.",
+//       });
+//     }
+
+//     // =====================================================
+//     // FIND LIST
+//     // =====================================================
+
+//     const list = await List.findById(listId);
+
+//     if (!list) {
+//       if (fs.existsSync(filePath)) {
+//         fs.unlinkSync(filePath);
+//       }
+
+//       return res.status(404).json({
+//         message: "Lead List not found.",
+//       });
+//     }
+
+//     // =====================================================
+//     // CHECK CAMPAIGN
+//     // =====================================================
+
+//     const campaign = list.campaign;
+
+//     if (!campaign) {
+//       if (fs.existsSync(filePath)) {
+//         fs.unlinkSync(filePath);
+//       }
+
+//       return res.status(400).json({
+//         message:
+//           "This list has no campaign attached. Please update the list with a campaign first.",
+//       });
+//     }
+
+//     // =====================================================
+//     // PARSE CSV / EXCEL FILE
+//     // =====================================================
+
+//     const leadsArray = await parseLeadFile(filePath);
+
+//     if (
+//       !leadsArray ||
+//       leadsArray.length === 0
+//     ) {
+//       if (fs.existsSync(filePath)) {
+//         fs.unlinkSync(filePath);
+//       }
+
+//       return res.status(400).json({
+//         message:
+//           "The uploaded file contains no data rows.",
+//       });
+//     }
+
+//     // =====================================================
+//     // DETERMINE CAMPAIGN MODEL
+//     // =====================================================
+
+//     const campaignNormalized = campaign
+//       .toLowerCase()
+//       .replace(/[\s_]+/g, "");
+
+//     let TargetModel = null;
+
+//     if (
+//       campaignNormalized.includes("silgate")
+//     ) {
+//       TargetModel = Silgate;
+//     } else if (
+//       campaignNormalized.includes("talent") ||
+//       campaignNormalized.includes("corner")
+//     ) {
+//       TargetModel = TalentCorner;
+//     } else {
+//       if (fs.existsSync(filePath)) {
+//         fs.unlinkSync(filePath);
+//       }
+
+//       return res.status(400).json({
+//         message:
+//           `Unsupported campaign type '${campaign}'. ` +
+//           `Leads can only be imported to 'Silgate' or 'Talent Corner'.`,
+//       });
+//     }
+
+//     // =====================================================
+//     // PHASE 1:
+//     // VALIDATE PHONE NUMBERS
+//     // CHECK DUPLICATES INSIDE FILE
+//     // =====================================================
+
+//     const filePhoneMap = new Map();
+//     const uniquePhonesFromFile = new Set();
+
+//     const rowsToProcess = [];
+//     const duplicateRecords = [];
+
+//     let intraFileDuplicatesCount = 0;
+
+//     for (
+//       const [index, lead]
+//       of leadsArray.entries()
+//     ) {
+//       const rowNum = index + 2;
+
+//       const rawPhone = String(
+//         lead.candidatePhone ||
+//         lead.candidatephone ||
+//         lead.phone ||
+//         lead.mobile ||
+//         lead.contact ||
+//         ""
+//       ).replace(/\D/g, "");
+
+//       // ===================================================
+//       // PHONE VALIDATION
+//       // ===================================================
+
+//       if (
+//         !rawPhone ||
+//         rawPhone.length !== 10
+//       ) {
+//         if (fs.existsSync(filePath)) {
+//           fs.unlinkSync(filePath);
+//         }
+
+//         return res.status(400).json({
+//           message:
+//             `Invalid or missing 10-digit mobile number at row ${rowNum} ` +
+//             `(${lead.candidatePhone || lead.phone || "empty"}).`,
+//         });
+//       }
+
+//       // ===================================================
+//       // FILE DUPLICATE CHECK
+//       // ===================================================
+
+//       if (filePhoneMap.has(rawPhone)) {
+//         const originalRow =
+//           filePhoneMap.get(rawPhone);
+
+//         duplicateRecords.push({
+//           phone: rawPhone,
+//           rowNum,
+//           type: "file",
+//           details:
+//             `Duplicate in uploaded file (first seen at row ${originalRow})`,
+//         });
+
+//         intraFileDuplicatesCount++;
+
+//         continue;
+//       }
+
+//       filePhoneMap.set(
+//         rawPhone,
+//         rowNum
+//       );
+
+//       uniquePhonesFromFile.add(
+//         rawPhone
+//       );
+
+//       rowsToProcess.push({
+//         lead,
+//         rawPhone,
+//         rowNum,
+//       });
+//     }
+
+//     // =====================================================
+//     // PHASE 2:
+//     // CHECK DATABASE DUPLICATES
+//     // =====================================================
+
+//     const phonesToCheck =
+//       Array.from(uniquePhonesFromFile);
+
+//     const existingDbDocs =
+//       await TargetModel.find({
+//         candidatePhone: {
+//           $in: phonesToCheck,
+//         },
+//       }).select("candidatePhone");
+
+//     const existingDbPhonesSet =
+//       new Set(
+//         existingDbDocs.map(
+//           (doc) => doc.candidatePhone
+//         )
+//       );
+
+//     let dbDuplicatesCount = 0;
+
+//     const finalLeadsToInsert = [];
+
+//     for (
+//       const item of rowsToProcess
+//     ) {
+//       if (
+//         existingDbPhonesSet.has(
+//           item.rawPhone
+//         )
+//       ) {
+//         duplicateRecords.push({
+//           phone: item.rawPhone,
+//           rowNum: item.rowNum,
+//           type: "database",
+//           details:
+//             "Already exists in database",
+//         });
+
+//         dbDuplicatesCount++;
+
+//         continue;
+//       }
+
+//       finalLeadsToInsert.push(item);
+//     }
+
+//     const skippedCount =
+//       intraFileDuplicatesCount +
+//       dbDuplicatesCount;
+
+//     // =====================================================
+//     // REJECT DUPLICATES IF skipDuplicates = false
+//     // =====================================================
+
+//     if (
+//       !shouldSkipDuplicates &&
+//       duplicateRecords.length > 0
+//     ) {
+//       if (fs.existsSync(filePath)) {
+//         fs.unlinkSync(filePath);
+//       }
+
+//       const duplicateSummary =
+//         duplicateRecords
+//           .map(
+//             (d) =>
+//               `Row ${d.rowNum} (${d.phone}): ` +
+//               `${d.type === "file"
+//                 ? `duplicate in file (first seen at row ${filePhoneMap.get(
+//                   d.phone
+//                 )})`
+//                 : "already exists in database"
+//               }`
+//           )
+//           .join("; ");
+
+//       return res.status(400).json({
+//         message:
+//           `Duplicate lead(s) found: ${duplicateSummary}.`,
+
+//         duplicateCount:
+//           duplicateRecords.length,
+
+//         duplicates:
+//           duplicateRecords,
+//       });
+//     }
+
+//     // =====================================================
+//     // PARSE SELECTED USERS
+//     // =====================================================
+
+//     let userIds = [];
+
+//     if (selectedUserIds) {
+//       if (
+//         Array.isArray(selectedUserIds)
+//       ) {
+//         userIds =
+//           selectedUserIds;
+//       } else if (
+//         typeof selectedUserIds === "string"
+//       ) {
+//         try {
+//           userIds =
+//             JSON.parse(
+//               selectedUserIds
+//             );
+//         } catch (e) {
+//           userIds =
+//             selectedUserIds
+//               .split(",")
+//               .map((s) =>
+//                 s.trim()
+//               )
+//               .filter(Boolean);
+//         }
+//       }
+//     }
+
+//     // =====================================================
+//     // GET SELECTED USERS
+//     // =====================================================
+
+//     let selectedUsers = [];
+
+//     if (userIds.length > 0) {
+//       selectedUsers =
+//         await User.find({
+//           _id: {
+//             $in: userIds,
+//           },
+//         }).select(
+//           "_id name email role"
+//         );
+
+//       if (
+//         !selectedUsers.length
+//       ) {
+//         if (
+//           fs.existsSync(filePath)
+//         ) {
+//           fs.unlinkSync(filePath);
+//         }
+
+//         return res.status(404).json({
+//           message:
+//             "Selected users not found.",
+//         });
+//       }
+//     }
+
+//     // =====================================================
+//     // VALIDATE assignedTo
+//     // =====================================================
+
+//     let assignedUserId = null;
+
+//     if (
+//       assignedTo !== undefined &&
+//       assignedTo !== null &&
+//       assignedTo !== ""
+//     ) {
+//       if (
+//         !mongoose.Types.ObjectId.isValid(
+//           assignedTo
+//         )
+//       ) {
+//         if (
+//           fs.existsSync(filePath)
+//         ) {
+//           fs.unlinkSync(filePath);
+//         }
+
+//         return res.status(400).json({
+//           message:
+//             "Invalid assignedTo user ID.",
+//         });
+//       }
+
+//       const assignedUser =
+//         await User.findOne({
+//           _id: assignedTo,
+//           role: "hr",
+//         }).select("_id");
+
+//       if (!assignedUser) {
+//         if (
+//           fs.existsSync(filePath)
+//         ) {
+//           fs.unlinkSync(filePath);
+//         }
+
+//         return res.status(404).json({
+//           message:
+//             "The assignedTo user was not found or is not an HR user.",
+//         });
+//       }
+
+//       assignedUserId =
+//         assignedUser._id;
+//     }
+
+//     // =====================================================
+//     // SOURCE
+//     // =====================================================
+
+//     const effectiveSource =
+//       leadsource ||
+//       source ||
+//       "File Upload";
+
+//     // =====================================================
+//     // AUTO DISTRIBUTION
+//     // =====================================================
+
+//     let userIndex = 0;
+
+//     const isAutoDistribute =
+//       selectedUsers.length > 0;
+
+//     const getAssignedUserId = () => {
+//       if (isAutoDistribute) {
+//         const user =
+//           selectedUsers[
+//           userIndex
+//           ];
+
+//         userIndex =
+//           (userIndex + 1) %
+//           selectedUsers.length;
+
+//         return user._id;
+//       }
+
+//       return (
+//         list.user_id ||
+//         req.user.id
+//       );
+//     };
+
+//     // =====================================================
+//     // INSERTED DOCUMENTS
+//     // =====================================================
+
+//     let insertedDocs = [];
+
+//     // =====================================================
+//     // CAMPAIGN 1: SILGATE
+//     // =====================================================
+
+//     if (
+//       campaignNormalized.includes(
+//         "silgate"
+//       )
+//     ) {
+//       const newLeads = [];
+
+//       for (
+//         const {
+//           lead,
+//           rawPhone,
+//           rowNum,
+//         } of finalLeadsToInsert
+//       ) {
+//         // ===============================================
+//         // CANDIDATE NAME
+//         // ===============================================
+
+//         const candidateName =
+//           lead.candidateName ||
+//           lead.candidatename ||
+//           lead.name ||
+//           lead.candidate ||
+//           "";
+
+//         if (
+//           !candidateName ||
+//           !candidateName.trim()
+//         ) {
+//           if (
+//             fs.existsSync(filePath)
+//           ) {
+//             fs.unlinkSync(filePath);
+//           }
+
+//           return res.status(400).json({
+//             message:
+//               `Candidate Name is required at row ${rowNum} for Silgate.`,
+//           });
+//         }
+
+//         // ===============================================
+//         // DESIGNATION
+//         // ===============================================
+
+//         const candidateDesignation =
+//           lead.candidateDesignation ||
+//           lead.candidatedesignation ||
+//           lead.designation ||
+//           lead.role ||
+//           "";
+
+//         if (
+//           !candidateDesignation ||
+//           !candidateDesignation.trim()
+//         ) {
+//           if (
+//             fs.existsSync(filePath)
+//           ) {
+//             fs.unlinkSync(filePath);
+//           }
+
+//           return res.status(400).json({
+//             message:
+//               `Candidate Designation is required at row ${rowNum} for Silgate.`,
+//           });
+//         }
+
+//         // ===============================================
+//         // LANGUAGE
+//         // ===============================================
+
+//         const language =
+//           lead.language ||
+//           lead.lang ||
+//           "Hindi";
+
+//         // ===============================================
+//         // DISPOSITION
+//         // ===============================================
+
+//         const disposition =
+//           lead.disposition ||
+//           "New Lead";
+
+//         // ===============================================
+//         // LOCATION
+//         // ===============================================
+
+//         const candidateLocation =
+//           lead.candidateLocation ||
+//           lead.candidatelocation ||
+//           lead.location ||
+//           lead.city ||
+//           "";
+
+//         // ===============================================
+//         // SOURCE
+//         // ===============================================
+
+//         const itemSource =
+//           lead.source ||
+//           effectiveSource;
+
+//         // ===============================================
+//         // RESUME STATUS
+//         // ===============================================
+
+//         const resumeStatus =
+//           [
+//             "Sent",
+//             "Not Sent",
+//           ].includes(
+//             lead.resumeStatus ||
+//             lead.resumestatus
+//           )
+//             ? lead.resumeStatus ||
+//             lead.resumestatus
+//             : "Not Sent";
+
+//         // ===============================================
+//         // EXPERIENCE
+//         // ===============================================
+
+//         const experience =
+//           lead.experience ||
+//           lead.Experience ||
+//           lead.experienceStatus ||
+//           lead.experiencestatus;
+
+//         if (
+//           ![
+//             "Experienced",
+//             "Fresher",
+//           ].includes(experience)
+//         ) {
+//           if (
+//             fs.existsSync(filePath)
+//           ) {
+//             fs.unlinkSync(filePath);
+//           }
+
+//           return res.status(400).json({
+//             message:
+//               `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
+//           });
+//         }
+
+//         // ===============================================
+//         // CREATE SILGATE LEAD
+//         // ===============================================
+
+//         newLeads.push({
+//           hrId:
+//             getAssignedUserId(),
+
+//           assignedTo:
+//             assignedUserId,
+
+//           candidateName:
+//             candidateName.trim(),
+
+//           candidatePhone:
+//             rawPhone,
+
+//           candidateLocation:
+//             candidateLocation
+//               ? candidateLocation.trim()
+//               : "",
+
+//           language:
+//             language.trim(),
+
+//           disposition:
+//             disposition.trim(),
+
+//           source:
+//             itemSource.trim(),
+
+//           candidateDesignation:
+//             candidateDesignation.trim(),
+
+//           resumeStatus,
+
+//           experience,
+
+//           listId:
+//             list._id,
+//         });
+//       }
+
+//       // ===============================================
+//       // INSERT SILGATE LEADS
+//       // ===============================================
+
+//       if (
+//         newLeads.length > 0
+//       ) {
+//         insertedDocs =
+//           await Silgate.insertMany(
+//             newLeads
+//           );
+//       }
+//     }
+
+//     // =====================================================
+//     // CAMPAIGN 2: TALENT CORNER
+//     // =====================================================
+
+//     else if (
+//       campaignNormalized.includes(
+//         "talent"
+//       ) ||
+//       campaignNormalized.includes(
+//         "corner"
+//       )
+//     ) {
+//       const newLeads = [];
+
+//       for (
+//         const {
+//           lead,
+//           rawPhone,
+//           rowNum,
+//         } of finalLeadsToInsert
+//       ) {
+//         // ===============================================
+//         // CANDIDATE DESIGNATION
+//         // ===============================================
+
+//         const candidateDesignation =
+//           lead.candidateDesignation ||
+//           lead.candidatedesignation ||
+//           lead.designation ||
+//           lead.role ||
+//           "";
+
+//         if (
+//           !candidateDesignation ||
+//           !candidateDesignation.trim()
+//         ) {
+//           if (
+//             fs.existsSync(filePath)
+//           ) {
+//             fs.unlinkSync(filePath);
+//           }
+
+//           return res.status(400).json({
+//             message:
+//               `Candidate Designation is required at row ${rowNum} for Talent Corner.`,
+//           });
+//         }
+
+//         // ===============================================
+//         // CANDIDATE NAME
+//         // ===============================================
+
+//         const candidateName =
+//           lead.candidateName ||
+//           lead.candidatename ||
+//           lead.name ||
+//           "";
+
+//         // ===============================================
+//         // CANDIDATE LOCATION
+//         // ===============================================
+
+//         const candidateLocation =
+//           lead.candidateLocation ||
+//           lead.candidatelocation ||
+//           lead.location ||
+//           lead.city ||
+//           "";
+
+//         // ===============================================
+//         // COMPANY NAME
+//         // ===============================================
+
+//         const companyName =
+//           lead.companyName ||
+//           lead.companyname ||
+//           lead.company ||
+//           "";
+
+//         // ===============================================
+//         // INTERVIEW STATUS
+//         // ===============================================
+
+//         const interviewStatus =
+//           lead.interviewStatus ||
+//           lead.interviewstatus ||
+//           lead.status ||
+//           "";
+
+//         // ===============================================
+//         // SOURCE
+//         // ===============================================
+
+//         const itemSource =
+//           lead.source ||
+//           effectiveSource;
+
+//         // ===============================================
+//         // RESUME STATUS
+//         // ===============================================
+
+//         const resumeStatus =
+//           [
+//             "Sent",
+//             "Not Sent",
+//           ].includes(
+//             lead.resumeStatus ||
+//             lead.resumestatus
+//           )
+//             ? lead.resumeStatus ||
+//             lead.resumestatus
+//             : "Not Sent";
+
+//         // ===============================================
+//         // EXPERIENCE
+//         // ===============================================
+
+//         const experience =
+//           lead.experience ||
+//           lead.Experience ||
+//           lead.experienceStatus ||
+//           lead.experiencestatus;
+
+//         if (
+//           ![
+//             "Experienced",
+//             "Fresher",
+//           ].includes(experience)
+//         ) {
+//           if (
+//             fs.existsSync(filePath)
+//           ) {
+//             fs.unlinkSync(filePath);
+//           }
+
+//           return res.status(400).json({
+//             message:
+//               `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Talent Corner.`,
+//           });
+//         }
+
+//         // ===============================================
+//         // CREATE TALENT CORNER LEAD
+//         // ===============================================
+
+//         newLeads.push({
+//           hrId:
+//             getAssignedUserId(),
+
+//           assignedTo:
+//             assignedUserId,
+
+//           candidateName:
+//             candidateName
+//               ? candidateName.trim()
+//               : "",
+
+//           candidatePhone:
+//             rawPhone,
+
+//           candidateLocation:
+//             candidateLocation
+//               ? candidateLocation.trim()
+//               : "",
+
+//           candidateDesignation:
+//             candidateDesignation.trim(),
+
+//           source:
+//             itemSource
+//               ? itemSource.trim()
+//               : "",
+
+//           companyName:
+//             companyName
+//               ? companyName.trim()
+//               : "",
+
+//           interviewStatus:
+//             interviewStatus
+//               ? interviewStatus.trim()
+//               : "",
+
+//           resumeStatus,
+
+//           // IMPORTANT:
+//           // Talent Corner requires experience
+//           experience,
+
+//           listId:
+//             list._id,
+//         });
+//       }
+
+//       // ===============================================
+//       // INSERT TALENT CORNER LEADS
+//       // ===============================================
+
+//       if (
+//         newLeads.length > 0
+//       ) {
+//         insertedDocs =
+//           await TalentCorner.insertMany(
+//             newLeads
+//           );
+//       }
+//     }
+
+//     // =====================================================
+//     // CLEAN UP UPLOADED FILE
+//     // =====================================================
+
+//     if (
+//       fs.existsSync(filePath)
+//     ) {
+//       fs.unlinkSync(filePath);
+//     }
+
+//     // =====================================================
+//     // AUDIT LOG
+//     // =====================================================
+
+//     await AuditLog.create({
+//       action: "UPLOAD_LEADS",
+
+//       details:
+//         `${insertedDocs.length} lead(s) uploaded from CSV/Excel ` +
+//         `for campaign '${campaign}' under list '${list.name}' ` +
+//         `by user '${req.user.name}' ` +
+//         `(${skippedCount} duplicate(s) skipped).`,
+
+//       performedBy:
+//         req.user.id,
+
+//       listId:
+//         list._id,
+//     });
+
+//     // =====================================================
+//     // DUPLICATE SUMMARY
+//     // =====================================================
+
+//     const duplicateSummary =
+//       duplicateRecords.length > 0
+//         ? ` ${duplicateRecords.length} duplicate lead(s) skipped: ` +
+//         duplicateRecords
+//           .map(
+//             (d) =>
+//               `Row ${d.rowNum} (${d.phone}): ` +
+//               `${d.type === "file"
+//                 ? `duplicate in file (first seen at row ${filePhoneMap.get(
+//                   d.phone
+//                 )})`
+//                 : "already exists in database"
+//               }`
+//           )
+//           .join("; ")
+//         : "";
+
+//     // =====================================================
+//     // FINAL RESPONSE
+//     // =====================================================
+
+//     return res.status(201).json({
+//       success: true,
+
+//       message:
+//         `${insertedDocs.length} lead(s) imported successfully ` +
+//         `into "${campaign}" collection in ` +
+//         `${isAutoDistribute
+//           ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
+//           : "Single User Mode"
+//         }.` +
+//         duplicateSummary,
+
+//       insertedCount:
+//         insertedDocs.length,
+
+//       skippedCount,
+
+//       duplicates:
+//         duplicateRecords,
+
+//       campaign,
+
+//       data:
+//         insertedDocs,
+//     });
+//   } catch (err) {
+//     // =====================================================
+//     // CLEAN UP FILE ON ERROR
+//     // =====================================================
+
+//     if (
+//       filePath &&
+//       fs.existsSync(filePath)
+//     ) {
+//       fs.unlinkSync(filePath);
+//     }
+
+//     console.error(
+//       "uploadAndDistribute Error:",
+//       err
+//     );
+
+//     return res.status(500).json({
+//       message:
+//         err.message,
+//     });
+//   }
+// };
+
 exports.uploadAndDistribute = async (req, res) => {
   if (!req.file) {
     return res
@@ -307,23 +1293,16 @@ exports.uploadAndDistribute = async (req, res) => {
       skipDuplicates,
     } = req.body;
 
-    const listId =
-      providedListId ||
-      req.body.listId ||
-      req.params.id;
+    const listId = providedListId || req.body.listId || req.params.id;
 
     const shouldSkipDuplicates =
-      skipDuplicates === true ||
-      skipDuplicates === "true";
+      skipDuplicates === true || skipDuplicates === "true";
 
     // =====================================================
     // VALIDATE LIST ID
     // =====================================================
 
-    if (
-      !listId ||
-      !mongoose.Types.ObjectId.isValid(listId)
-    ) {
+    if (!listId || !mongoose.Types.ObjectId.isValid(listId)) {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
@@ -369,20 +1348,18 @@ exports.uploadAndDistribute = async (req, res) => {
     // =====================================================
     // PARSE CSV / EXCEL FILE
     // =====================================================
+    const parsedFile = await parseLeadFile(filePath);
+    // const leadsArray = await parseLeadFile(filePath);
+    const leadsArray = parsedFile.rows;
+    const uploadedHeaders = parsedFile.headers;
 
-    const leadsArray = await parseLeadFile(filePath);
-
-    if (
-      !leadsArray ||
-      leadsArray.length === 0
-    ) {
+    if (!leadsArray || leadsArray.length === 0) {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
 
       return res.status(400).json({
-        message:
-          "The uploaded file contains no data rows.",
+        message: "The uploaded file contains no data rows.",
       });
     }
 
@@ -390,15 +1367,11 @@ exports.uploadAndDistribute = async (req, res) => {
     // DETERMINE CAMPAIGN MODEL
     // =====================================================
 
-    const campaignNormalized = campaign
-      .toLowerCase()
-      .replace(/[\s_]+/g, "");
+    const campaignNormalized = campaign.toLowerCase().replace(/[\s_]+/g, "");
 
     let TargetModel = null;
 
-    if (
-      campaignNormalized.includes("silgate")
-    ) {
+    if (campaignNormalized.includes("silgate")) {
       TargetModel = Silgate;
     } else if (
       campaignNormalized.includes("talent") ||
@@ -418,6 +1391,137 @@ exports.uploadAndDistribute = async (req, res) => {
     }
 
     // =====================================================
+    // VALIDATE CSV HEADERS
+    // =====================================================
+    //
+    // Silgate and Talent Corner have different CSV
+    // structures.
+    //
+    // This prevents:
+    //
+    // Silgate CSV       -> Talent Corner ❌
+    // Talent Corner CSV -> Silgate       ❌
+    //
+    // Only the correct CSV structure is accepted.
+    // =====================================================
+
+    const normalizeHeader = (header) => {
+      return String(header || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+    };
+
+    // Get headers from the first parsed row.
+    // const uploadedHeaders = Object.keys(
+    //   leadsArray[0] || {}
+    // )
+    const normalizeUploadedHeaders = uploadedHeaders
+      .map(normalizeHeader)
+      .filter(Boolean);
+
+    let expectedHeaders = [];
+
+    // =====================================================
+    // SILGATE CSV HEADERS
+    // =====================================================
+
+    if (campaignNormalized.includes("silgate")) {
+      expectedHeaders = [
+        "Candidate Name",
+        "Candidate Phone",
+        "Candidate Location",
+        "Language",
+        "Disposition",
+        "Source",
+        "Candidate Designation",
+        "Resume Status",
+        "Experience",
+      ];
+    }
+
+    // =====================================================
+    // TALENT CORNER CSV HEADERS
+    // =====================================================
+    else if (
+      campaignNormalized.includes("talent") ||
+      campaignNormalized.includes("corner")
+    ) {
+      expectedHeaders = [
+        "Candidate Name",
+        "Candidate Phone",
+        "Candidate Location",
+        "Candidate Designation",
+        "Source",
+        "Company Name",
+        "Interview Status",
+        "Resume Status",
+        "Experience",
+      ];
+    }
+
+    const normalizedExpectedHeaders = expectedHeaders.map(normalizeHeader);
+
+    const uploadedHeaderSet = new Set(normalizeUploadedHeaders);
+
+    const expectedHeaderSet = new Set(normalizedExpectedHeaders);
+
+    // =====================================================
+    // FIND MISSING HEADERS
+    // =====================================================
+
+    const missingHeaders = expectedHeaders.filter(
+      (header) => !uploadedHeaderSet.has(normalizeHeader(header)),
+    );
+
+    // =====================================================
+    // FIND UNEXPECTED HEADERS
+    // =====================================================
+
+    const unexpectedHeaders = uploadedHeaders.filter(
+      (header) => !expectedHeaderSet.has(normalizeHeader(header)),
+    );
+
+    const hasDuplicateHeaders =
+      new Set(normalizeUploadedHeaders).size !==
+      normalizeUploadedHeaders.length;
+    // =====================================================
+    // VALIDATE COMPLETE HEADER STRUCTURE
+    // =====================================================
+
+    const headersAreValid =
+      normalizeUploadedHeaders.length === normalizedExpectedHeaders.length &&
+      missingHeaders.length === 0 &&
+      unexpectedHeaders.length === 0 &&
+      !hasDuplicateHeaders;
+
+    // =====================================================
+    // REJECT INVALID CSV
+    // =====================================================
+
+    if (!headersAreValid) {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      return res.status(400).json({
+        success: false,
+
+        message:
+          `Invalid CSV for "${campaign}". ` +
+          `Please upload a valid ${campaign} CSV file.`,
+
+        expectedHeaders,
+
+        uploadedHeaders,
+
+        missingHeaders,
+
+        unexpectedHeaders,
+      });
+    }
+
+    // =====================================================
     // PHASE 1:
     // VALIDATE PHONE NUMBERS
     // CHECK DUPLICATES INSIDE FILE
@@ -431,29 +1535,23 @@ exports.uploadAndDistribute = async (req, res) => {
 
     let intraFileDuplicatesCount = 0;
 
-    for (
-      const [index, lead]
-      of leadsArray.entries()
-    ) {
+    for (const [index, lead] of leadsArray.entries()) {
       const rowNum = index + 2;
 
       const rawPhone = String(
         lead.candidatePhone ||
-        lead.candidatephone ||
-        lead.phone ||
-        lead.mobile ||
-        lead.contact ||
-        ""
+          lead.candidatephone ||
+          lead.phone ||
+          lead.mobile ||
+          lead.contact ||
+          "",
       ).replace(/\D/g, "");
 
       // ===================================================
       // PHONE VALIDATION
       // ===================================================
 
-      if (
-        !rawPhone ||
-        rawPhone.length !== 10
-      ) {
+      if (!rawPhone || rawPhone.length !== 10) {
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
@@ -470,15 +1568,13 @@ exports.uploadAndDistribute = async (req, res) => {
       // ===================================================
 
       if (filePhoneMap.has(rawPhone)) {
-        const originalRow =
-          filePhoneMap.get(rawPhone);
+        const originalRow = filePhoneMap.get(rawPhone);
 
         duplicateRecords.push({
           phone: rawPhone,
           rowNum,
           type: "file",
-          details:
-            `Duplicate in uploaded file (first seen at row ${originalRow})`,
+          details: `Duplicate in uploaded file (first seen at row ${originalRow})`,
         });
 
         intraFileDuplicatesCount++;
@@ -486,14 +1582,9 @@ exports.uploadAndDistribute = async (req, res) => {
         continue;
       }
 
-      filePhoneMap.set(
-        rawPhone,
-        rowNum
-      );
+      filePhoneMap.set(rawPhone, rowNum);
 
-      uniquePhonesFromFile.add(
-        rawPhone
-      );
+      uniquePhonesFromFile.add(rawPhone);
 
       rowsToProcess.push({
         lead,
@@ -507,41 +1598,29 @@ exports.uploadAndDistribute = async (req, res) => {
     // CHECK DATABASE DUPLICATES
     // =====================================================
 
-    const phonesToCheck =
-      Array.from(uniquePhonesFromFile);
+    const phonesToCheck = Array.from(uniquePhonesFromFile);
 
-    const existingDbDocs =
-      await TargetModel.find({
-        candidatePhone: {
-          $in: phonesToCheck,
-        },
-      }).select("candidatePhone");
+    const existingDbDocs = await TargetModel.find({
+      candidatePhone: {
+        $in: phonesToCheck,
+      },
+    }).select("candidatePhone");
 
-    const existingDbPhonesSet =
-      new Set(
-        existingDbDocs.map(
-          (doc) => doc.candidatePhone
-        )
-      );
+    const existingDbPhonesSet = new Set(
+      existingDbDocs.map((doc) => doc.candidatePhone),
+    );
 
     let dbDuplicatesCount = 0;
 
     const finalLeadsToInsert = [];
 
-    for (
-      const item of rowsToProcess
-    ) {
-      if (
-        existingDbPhonesSet.has(
-          item.rawPhone
-        )
-      ) {
+    for (const item of rowsToProcess) {
+      if (existingDbPhonesSet.has(item.rawPhone)) {
         duplicateRecords.push({
           phone: item.rawPhone,
           rowNum: item.rowNum,
           type: "database",
-          details:
-            "Already exists in database",
+          details: "Already exists in database",
         });
 
         dbDuplicatesCount++;
@@ -552,45 +1631,37 @@ exports.uploadAndDistribute = async (req, res) => {
       finalLeadsToInsert.push(item);
     }
 
-    const skippedCount =
-      intraFileDuplicatesCount +
-      dbDuplicatesCount;
+    const skippedCount = intraFileDuplicatesCount + dbDuplicatesCount;
 
     // =====================================================
     // REJECT DUPLICATES IF skipDuplicates = false
     // =====================================================
 
-    if (
-      !shouldSkipDuplicates &&
-      duplicateRecords.length > 0
-    ) {
+    if (!shouldSkipDuplicates && duplicateRecords.length > 0) {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
 
-      const duplicateSummary =
-        duplicateRecords
-          .map(
-            (d) =>
-              `Row ${d.rowNum} (${d.phone}): ` +
-              `${d.type === "file"
+      const duplicateSummary = duplicateRecords
+        .map(
+          (d) =>
+            `Row ${d.rowNum} (${d.phone}): ` +
+            `${
+              d.type === "file"
                 ? `duplicate in file (first seen at row ${filePhoneMap.get(
-                  d.phone
-                )})`
+                    d.phone,
+                  )})`
                 : "already exists in database"
-              }`
-          )
-          .join("; ");
+            }`,
+        )
+        .join("; ");
 
       return res.status(400).json({
-        message:
-          `Duplicate lead(s) found: ${duplicateSummary}.`,
+        message: `Duplicate lead(s) found: ${duplicateSummary}.`,
 
-        duplicateCount:
-          duplicateRecords.length,
+        duplicateCount: duplicateRecords.length,
 
-        duplicates:
-          duplicateRecords,
+        duplicates: duplicateRecords,
       });
     }
 
@@ -601,27 +1672,16 @@ exports.uploadAndDistribute = async (req, res) => {
     let userIds = [];
 
     if (selectedUserIds) {
-      if (
-        Array.isArray(selectedUserIds)
-      ) {
-        userIds =
-          selectedUserIds;
-      } else if (
-        typeof selectedUserIds === "string"
-      ) {
+      if (Array.isArray(selectedUserIds)) {
+        userIds = selectedUserIds;
+      } else if (typeof selectedUserIds === "string") {
         try {
-          userIds =
-            JSON.parse(
-              selectedUserIds
-            );
+          userIds = JSON.parse(selectedUserIds);
         } catch (e) {
-          userIds =
-            selectedUserIds
-              .split(",")
-              .map((s) =>
-                s.trim()
-              )
-              .filter(Boolean);
+          userIds = selectedUserIds
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
         }
       }
     }
@@ -633,27 +1693,19 @@ exports.uploadAndDistribute = async (req, res) => {
     let selectedUsers = [];
 
     if (userIds.length > 0) {
-      selectedUsers =
-        await User.find({
-          _id: {
-            $in: userIds,
-          },
-        }).select(
-          "_id name email role"
-        );
+      selectedUsers = await User.find({
+        _id: {
+          $in: userIds,
+        },
+      }).select("_id name email role");
 
-      if (
-        !selectedUsers.length
-      ) {
-        if (
-          fs.existsSync(filePath)
-        ) {
+      if (!selectedUsers.length) {
+        if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
 
         return res.status(404).json({
-          message:
-            "Selected users not found.",
+          message: "Selected users not found.",
         });
       }
     }
@@ -664,59 +1716,40 @@ exports.uploadAndDistribute = async (req, res) => {
 
     let assignedUserId = null;
 
-    if (
-      assignedTo !== undefined &&
-      assignedTo !== null &&
-      assignedTo !== ""
-    ) {
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          assignedTo
-        )
-      ) {
-        if (
-          fs.existsSync(filePath)
-        ) {
+    if (assignedTo !== undefined && assignedTo !== null && assignedTo !== "") {
+      if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
+        if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
 
         return res.status(400).json({
-          message:
-            "Invalid assignedTo user ID.",
+          message: "Invalid assignedTo user ID.",
         });
       }
 
-      const assignedUser =
-        await User.findOne({
-          _id: assignedTo,
-          role: "hr",
-        }).select("_id");
+      const assignedUser = await User.findOne({
+        _id: assignedTo,
+        role: "hr",
+      }).select("_id");
 
       if (!assignedUser) {
-        if (
-          fs.existsSync(filePath)
-        ) {
+        if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
 
         return res.status(404).json({
-          message:
-            "The assignedTo user was not found or is not an HR user.",
+          message: "The assignedTo user was not found or is not an HR user.",
         });
       }
 
-      assignedUserId =
-        assignedUser._id;
+      assignedUserId = assignedUser._id;
     }
 
     // =====================================================
     // SOURCE
     // =====================================================
 
-    const effectiveSource =
-      leadsource ||
-      source ||
-      "File Upload";
+    const effectiveSource = leadsource || source || "File Upload";
 
     // =====================================================
     // AUTO DISTRIBUTION
@@ -724,27 +1757,18 @@ exports.uploadAndDistribute = async (req, res) => {
 
     let userIndex = 0;
 
-    const isAutoDistribute =
-      selectedUsers.length > 0;
+    const isAutoDistribute = selectedUsers.length > 0;
 
     const getAssignedUserId = () => {
       if (isAutoDistribute) {
-        const user =
-          selectedUsers[
-          userIndex
-          ];
+        const user = selectedUsers[userIndex];
 
-        userIndex =
-          (userIndex + 1) %
-          selectedUsers.length;
+        userIndex = (userIndex + 1) % selectedUsers.length;
 
         return user._id;
       }
 
-      return (
-        list.user_id ||
-        req.user.id
-      );
+      return list.user_id || req.user.id;
     };
 
     // =====================================================
@@ -757,20 +1781,10 @@ exports.uploadAndDistribute = async (req, res) => {
     // CAMPAIGN 1: SILGATE
     // =====================================================
 
-    if (
-      campaignNormalized.includes(
-        "silgate"
-      )
-    ) {
+    if (campaignNormalized.includes("silgate")) {
       const newLeads = [];
 
-      for (
-        const {
-          lead,
-          rawPhone,
-          rowNum,
-        } of finalLeadsToInsert
-      ) {
+      for (const { lead, rawPhone, rowNum } of finalLeadsToInsert) {
         // ===============================================
         // CANDIDATE NAME
         // ===============================================
@@ -782,19 +1796,13 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.candidate ||
           "";
 
-        if (
-          !candidateName ||
-          !candidateName.trim()
-        ) {
-          if (
-            fs.existsSync(filePath)
-          ) {
+        if (!candidateName || !candidateName.trim()) {
+          if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
 
           return res.status(400).json({
-            message:
-              `Candidate Name is required at row ${rowNum} for Silgate.`,
+            message: `Candidate Name is required at row ${rowNum} for Silgate.`,
           });
         }
 
@@ -809,19 +1817,13 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.role ||
           "";
 
-        if (
-          !candidateDesignation ||
-          !candidateDesignation.trim()
-        ) {
-          if (
-            fs.existsSync(filePath)
-          ) {
+        if (!candidateDesignation || !candidateDesignation.trim()) {
+          if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
 
           return res.status(400).json({
-            message:
-              `Candidate Designation is required at row ${rowNum} for Silgate.`,
+            message: `Candidate Designation is required at row ${rowNum} for Silgate.`,
           });
         }
 
@@ -829,18 +1831,13 @@ exports.uploadAndDistribute = async (req, res) => {
         // LANGUAGE
         // ===============================================
 
-        const language =
-          lead.language ||
-          lead.lang ||
-          "Hindi";
+        const language = lead.language || lead.lang || "Hindi";
 
         // ===============================================
         // DISPOSITION
         // ===============================================
 
-        const disposition =
-          lead.disposition ||
-          "New Lead";
+        const disposition = lead.disposition || "New Lead";
 
         // ===============================================
         // LOCATION
@@ -857,25 +1854,17 @@ exports.uploadAndDistribute = async (req, res) => {
         // SOURCE
         // ===============================================
 
-        const itemSource =
-          lead.source ||
-          effectiveSource;
+        const itemSource = lead.source || effectiveSource;
 
         // ===============================================
         // RESUME STATUS
         // ===============================================
 
-        const resumeStatus =
-          [
-            "Sent",
-            "Not Sent",
-          ].includes(
-            lead.resumeStatus ||
-            lead.resumestatus
-          )
-            ? lead.resumeStatus ||
-            lead.resumestatus
-            : "Not Sent";
+        const resumeStatus = ["Sent", "Not Sent"].includes(
+          lead.resumeStatus || lead.resumestatus,
+        )
+          ? lead.resumeStatus || lead.resumestatus
+          : "Not Sent";
 
         // ===============================================
         // EXPERIENCE
@@ -887,21 +1876,13 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.experienceStatus ||
           lead.experiencestatus;
 
-        if (
-          ![
-            "Experienced",
-            "Fresher",
-          ].includes(experience)
-        ) {
-          if (
-            fs.existsSync(filePath)
-          ) {
+        if (!["Experienced", "Fresher"].includes(experience)) {
+          if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
 
           return res.status(400).json({
-            message:
-              `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
+            message: `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
           });
         }
 
@@ -910,41 +1891,29 @@ exports.uploadAndDistribute = async (req, res) => {
         // ===============================================
 
         newLeads.push({
-          hrId:
-            getAssignedUserId(),
+          hrId: getAssignedUserId(),
 
-          assignedTo:
-            assignedUserId,
+          assignedTo: assignedUserId,
 
-          candidateName:
-            candidateName.trim(),
+          candidateName: candidateName.trim(),
 
-          candidatePhone:
-            rawPhone,
+          candidatePhone: rawPhone,
 
-          candidateLocation:
-            candidateLocation
-              ? candidateLocation.trim()
-              : "",
+          candidateLocation: candidateLocation ? candidateLocation.trim() : "",
 
-          language:
-            language.trim(),
+          language: language.trim(),
 
-          disposition:
-            disposition.trim(),
+          disposition: disposition.trim(),
 
-          source:
-            itemSource.trim(),
+          source: itemSource.trim(),
 
-          candidateDesignation:
-            candidateDesignation.trim(),
+          candidateDesignation: candidateDesignation.trim(),
 
           resumeStatus,
 
           experience,
 
-          listId:
-            list._id,
+          listId: list._id,
         });
       }
 
@@ -952,37 +1921,21 @@ exports.uploadAndDistribute = async (req, res) => {
       // INSERT SILGATE LEADS
       // ===============================================
 
-      if (
-        newLeads.length > 0
-      ) {
-        insertedDocs =
-          await Silgate.insertMany(
-            newLeads
-          );
+      if (newLeads.length > 0) {
+        insertedDocs = await Silgate.insertMany(newLeads);
       }
     }
 
     // =====================================================
     // CAMPAIGN 2: TALENT CORNER
     // =====================================================
-
     else if (
-      campaignNormalized.includes(
-        "talent"
-      ) ||
-      campaignNormalized.includes(
-        "corner"
-      )
+      campaignNormalized.includes("talent") ||
+      campaignNormalized.includes("corner")
     ) {
       const newLeads = [];
 
-      for (
-        const {
-          lead,
-          rawPhone,
-          rowNum,
-        } of finalLeadsToInsert
-      ) {
+      for (const { lead, rawPhone, rowNum } of finalLeadsToInsert) {
         // ===============================================
         // CANDIDATE DESIGNATION
         // ===============================================
@@ -994,19 +1947,13 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.role ||
           "";
 
-        if (
-          !candidateDesignation ||
-          !candidateDesignation.trim()
-        ) {
-          if (
-            fs.existsSync(filePath)
-          ) {
+        if (!candidateDesignation || !candidateDesignation.trim()) {
+          if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
 
           return res.status(400).json({
-            message:
-              `Candidate Designation is required at row ${rowNum} for Talent Corner.`,
+            message: `Candidate Designation is required at row ${rowNum} for Talent Corner.`,
           });
         }
 
@@ -1015,10 +1962,7 @@ exports.uploadAndDistribute = async (req, res) => {
         // ===============================================
 
         const candidateName =
-          lead.candidateName ||
-          lead.candidatename ||
-          lead.name ||
-          "";
+          lead.candidateName || lead.candidatename || lead.name || "";
 
         // ===============================================
         // CANDIDATE LOCATION
@@ -1036,44 +1980,30 @@ exports.uploadAndDistribute = async (req, res) => {
         // ===============================================
 
         const companyName =
-          lead.companyName ||
-          lead.companyname ||
-          lead.company ||
-          "";
+          lead.companyName || lead.companyname || lead.company || "";
 
         // ===============================================
         // INTERVIEW STATUS
         // ===============================================
 
         const interviewStatus =
-          lead.interviewStatus ||
-          lead.interviewstatus ||
-          lead.status ||
-          "";
+          lead.interviewStatus || lead.interviewstatus || lead.status || "";
 
         // ===============================================
         // SOURCE
         // ===============================================
 
-        const itemSource =
-          lead.source ||
-          effectiveSource;
+        const itemSource = lead.source || effectiveSource;
 
         // ===============================================
         // RESUME STATUS
         // ===============================================
 
-        const resumeStatus =
-          [
-            "Sent",
-            "Not Sent",
-          ].includes(
-            lead.resumeStatus ||
-            lead.resumestatus
-          )
-            ? lead.resumeStatus ||
-            lead.resumestatus
-            : "Not Sent";
+        const resumeStatus = ["Sent", "Not Sent"].includes(
+          lead.resumeStatus || lead.resumestatus,
+        )
+          ? lead.resumeStatus || lead.resumestatus
+          : "Not Sent";
 
         // ===============================================
         // EXPERIENCE
@@ -1085,21 +2015,13 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.experienceStatus ||
           lead.experiencestatus;
 
-        if (
-          ![
-            "Experienced",
-            "Fresher",
-          ].includes(experience)
-        ) {
-          if (
-            fs.existsSync(filePath)
-          ) {
+        if (!["Experienced", "Fresher"].includes(experience)) {
+          if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
 
           return res.status(400).json({
-            message:
-              `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Talent Corner.`,
+            message: `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Talent Corner.`,
           });
         }
 
@@ -1108,42 +2030,23 @@ exports.uploadAndDistribute = async (req, res) => {
         // ===============================================
 
         newLeads.push({
-          hrId:
-            getAssignedUserId(),
+          hrId: getAssignedUserId(),
 
-          assignedTo:
-            assignedUserId,
+          assignedTo: assignedUserId,
 
-          candidateName:
-            candidateName
-              ? candidateName.trim()
-              : "",
+          candidateName: candidateName ? candidateName.trim() : "",
 
-          candidatePhone:
-            rawPhone,
+          candidatePhone: rawPhone,
 
-          candidateLocation:
-            candidateLocation
-              ? candidateLocation.trim()
-              : "",
+          candidateLocation: candidateLocation ? candidateLocation.trim() : "",
 
-          candidateDesignation:
-            candidateDesignation.trim(),
+          candidateDesignation: candidateDesignation.trim(),
 
-          source:
-            itemSource
-              ? itemSource.trim()
-              : "",
+          source: itemSource ? itemSource.trim() : "",
 
-          companyName:
-            companyName
-              ? companyName.trim()
-              : "",
+          companyName: companyName ? companyName.trim() : "",
 
-          interviewStatus:
-            interviewStatus
-              ? interviewStatus.trim()
-              : "",
+          interviewStatus: interviewStatus ? interviewStatus.trim() : "",
 
           resumeStatus,
 
@@ -1151,8 +2054,7 @@ exports.uploadAndDistribute = async (req, res) => {
           // Talent Corner requires experience
           experience,
 
-          listId:
-            list._id,
+          listId: list._id,
         });
       }
 
@@ -1160,13 +2062,8 @@ exports.uploadAndDistribute = async (req, res) => {
       // INSERT TALENT CORNER LEADS
       // ===============================================
 
-      if (
-        newLeads.length > 0
-      ) {
-        insertedDocs =
-          await TalentCorner.insertMany(
-            newLeads
-          );
+      if (newLeads.length > 0) {
+        insertedDocs = await TalentCorner.insertMany(newLeads);
       }
     }
 
@@ -1174,9 +2071,7 @@ exports.uploadAndDistribute = async (req, res) => {
     // CLEAN UP UPLOADED FILE
     // =====================================================
 
-    if (
-      fs.existsSync(filePath)
-    ) {
+    if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
 
@@ -1193,11 +2088,9 @@ exports.uploadAndDistribute = async (req, res) => {
         `by user '${req.user.name}' ` +
         `(${skippedCount} duplicate(s) skipped).`,
 
-      performedBy:
-        req.user.id,
+      performedBy: req.user.id,
 
-      listId:
-        list._id,
+      listId: list._id,
     });
 
     // =====================================================
@@ -1207,18 +2100,19 @@ exports.uploadAndDistribute = async (req, res) => {
     const duplicateSummary =
       duplicateRecords.length > 0
         ? ` ${duplicateRecords.length} duplicate lead(s) skipped: ` +
-        duplicateRecords
-          .map(
-            (d) =>
-              `Row ${d.rowNum} (${d.phone}): ` +
-              `${d.type === "file"
-                ? `duplicate in file (first seen at row ${filePhoneMap.get(
-                  d.phone
-                )})`
-                : "already exists in database"
-              }`
-          )
-          .join("; ")
+          duplicateRecords
+            .map(
+              (d) =>
+                `Row ${d.rowNum} (${d.phone}): ` +
+                `${
+                  d.type === "file"
+                    ? `duplicate in file (first seen at row ${filePhoneMap.get(
+                        d.phone,
+                      )})`
+                    : "already exists in database"
+                }`,
+            )
+            .join("; ")
         : "";
 
     // =====================================================
@@ -1231,45 +2125,36 @@ exports.uploadAndDistribute = async (req, res) => {
       message:
         `${insertedDocs.length} lead(s) imported successfully ` +
         `into "${campaign}" collection in ` +
-        `${isAutoDistribute
-          ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
-          : "Single User Mode"
+        `${
+          isAutoDistribute
+            ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
+            : "Single User Mode"
         }.` +
         duplicateSummary,
 
-      insertedCount:
-        insertedDocs.length,
+      insertedCount: insertedDocs.length,
 
       skippedCount,
 
-      duplicates:
-        duplicateRecords,
+      duplicates: duplicateRecords,
 
       campaign,
 
-      data:
-        insertedDocs,
+      data: insertedDocs,
     });
   } catch (err) {
     // =====================================================
     // CLEAN UP FILE ON ERROR
     // =====================================================
 
-    if (
-      filePath &&
-      fs.existsSync(filePath)
-    ) {
+    if (filePath && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
 
-    console.error(
-      "uploadAndDistribute Error:",
-      err
-    );
+    console.error("uploadAndDistribute Error:", err);
 
     return res.status(500).json({
-      message:
-        err.message,
+      message: err.message,
     });
   }
 };
@@ -1319,7 +2204,7 @@ exports.downloadSampleFile = async (req, res) => {
         "Source",
         "Candidate Designation",
         "Resume Status",
-        "Experience"
+        "Experience",
       ];
 
       let csvContent = headers.map(escapeCSV).join(",") + "\n";
@@ -1343,7 +2228,7 @@ exports.downloadSampleFile = async (req, res) => {
         "Company Name",
         "Interview Status",
         "Resume Status",
-        "Experience"
+        "Experience",
       ];
 
       let csvContent = headers.map(escapeCSV).join(",") + "\n";

@@ -1,4 +1,4 @@
-const mongoose = require('mongoose')
+const mongoose = require("mongoose");
 const Silgate = require("../models/Silgate");
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
@@ -161,10 +161,7 @@ exports.getMySilgateData = async (req, res) => {
         // and NOT assigned to someone else
         {
           hrId: hrId,
-          $or: [
-            { assignedTo: null },
-            { assignedTo: { $exists: false } },
-          ],
+          $or: [{ assignedTo: null }, { assignedTo: { $exists: false } }],
         },
 
         // Leads assigned to this HR
@@ -188,7 +185,7 @@ exports.getMySilgateData = async (req, res) => {
     if (req.query.search) {
       const escapedSearch = req.query.search.replace(
         /[-\/\\^$*+?.()|[\]{}]/g,
-        "\\$&"
+        "\\$&",
       );
 
       query.$and = [
@@ -332,11 +329,9 @@ exports.updateSilgate = async (req, res) => {
     // --------------------------------------------------
     const isSuperAdmin = userRole === "superadmin";
 
-    const hasSilgateAccess =
-      userProjects.some(
-        (project) =>
-          project?.toString().trim().toLowerCase() === "silgate"
-      );
+    const hasSilgateAccess = userProjects.some(
+      (project) => project?.toString().trim().toLowerCase() === "silgate",
+    );
 
     console.log("Is Super Admin:", isSuperAdmin);
     console.log("Has Silgate Access:", hasSilgateAccess);
@@ -364,10 +359,7 @@ exports.updateSilgate = async (req, res) => {
     // 5. Candidate Name
     // --------------------------------------------------
     if (candidateName !== undefined) {
-      if (
-        typeof candidateName !== "string" ||
-        !candidateName.trim()
-      ) {
+      if (typeof candidateName !== "string" || !candidateName.trim()) {
         return res.status(400).json({
           message: "Candidate's Name is required.",
         });
@@ -384,8 +376,18 @@ exports.updateSilgate = async (req, res) => {
 
       if (!/^\d{10}$/.test(phone)) {
         return res.status(400).json({
-          message:
-            "A valid 10-digit Candidate's Phone is required.",
+          message: "A valid 10-digit Candidate's Phone is required.",
+        });
+      }
+
+      const existingSilgate = await Silgate.findOne({
+        candidatePhone: phone,
+        _id: { $ne: id },
+      });
+
+      if (existingSilgate) {
+        return res.status(400).json({
+          message: "This Candidate's Phone number already exists in Silgate.",
         });
       }
 
@@ -396,12 +398,8 @@ exports.updateSilgate = async (req, res) => {
     // 7. Candidate Location
     // --------------------------------------------------
     if (candidateLocation !== undefined) {
-      if (
-        typeof candidateLocation === "string" &&
-        candidateLocation.trim()
-      ) {
-        silgateLog.candidateLocation =
-          candidateLocation.trim();
+      if (typeof candidateLocation === "string" && candidateLocation.trim()) {
+        silgateLog.candidateLocation = candidateLocation.trim();
       } else {
         silgateLog.candidateLocation = "";
       }
@@ -411,10 +409,7 @@ exports.updateSilgate = async (req, res) => {
     // 8. Language
     // --------------------------------------------------
     if (language !== undefined) {
-      if (
-        typeof language !== "string" ||
-        !language.trim()
-      ) {
+      if (typeof language !== "string" || !language.trim()) {
         return res.status(400).json({
           message: "Language is required.",
         });
@@ -427,10 +422,7 @@ exports.updateSilgate = async (req, res) => {
     // 9. Disposition
     // --------------------------------------------------
     if (disposition !== undefined) {
-      if (
-        typeof disposition !== "string" ||
-        !disposition.trim()
-      ) {
+      if (typeof disposition !== "string" || !disposition.trim()) {
         return res.status(400).json({
           message: "Disposition is required.",
         });
@@ -491,8 +483,7 @@ exports.updateSilgate = async (req, res) => {
         });
       }
 
-      const trimmedDesignation =
-        candidateDesignation.trim();
+      const trimmedDesignation = candidateDesignation.trim();
 
       const designationExists = await Designation.findOne({
         name: trimmedDesignation,
@@ -506,8 +497,7 @@ exports.updateSilgate = async (req, res) => {
         });
       }
 
-      silgateLog.candidateDesignation =
-        trimmedDesignation;
+      silgateLog.candidateDesignation = trimmedDesignation;
     }
 
     // --------------------------------------------------
@@ -529,8 +519,7 @@ exports.updateSilgate = async (req, res) => {
     if (experience !== undefined) {
       if (!["Experienced", "Fresher"].includes(experience)) {
         return res.status(400).json({
-          message:
-            "Experience must be either Experienced or Fresher.",
+          message: "Experience must be either Experienced or Fresher.",
         });
       }
 
@@ -548,23 +537,19 @@ exports.updateSilgate = async (req, res) => {
           "..",
           "uploads",
           "resumes",
-          silgateLog.resumeFileName
+          silgateLog.resumeFileName,
         );
 
         fs.unlink(oldPath, (err) => {
           if (err && err.code !== "ENOENT") {
-            console.error(
-              "Failed to delete old resume:",
-              err
-            );
+            console.error("Failed to delete old resume:", err);
           }
         });
       }
 
       // Save new resume information
       silgateLog.resumeFileName = req.file.filename;
-      silgateLog.resumeOriginalName =
-        req.file.originalname;
+      silgateLog.resumeOriginalName = req.file.originalname;
     }
 
     // --------------------------------------------------
@@ -735,7 +720,6 @@ exports.exportSilgate = async (req, res) => {
   }
 };
 
-
 exports.assignSilgate = async (req, res) => {
   try {
     const { assignedTo, leadIds } = req.body;
@@ -773,7 +757,7 @@ exports.assignSilgate = async (req, res) => {
     }
 
     const invalidLeadIds = leadIds.filter(
-      (leadId) => !mongoose.Types.ObjectId.isValid(leadId)
+      (leadId) => !mongoose.Types.ObjectId.isValid(leadId),
     );
 
     if (invalidLeadIds.length > 0) {
@@ -841,10 +825,7 @@ exports.assignSilgate = async (req, res) => {
           {
             // Lead has never been assigned
             hrId: currentUserId,
-            $or: [
-              { assignedTo: null },
-              { assignedTo: { $exists: false } },
-            ],
+            $or: [{ assignedTo: null }, { assignedTo: { $exists: false } }],
           },
 
           {
@@ -858,9 +839,7 @@ exports.assignSilgate = async (req, res) => {
     const leads = await Silgate.find({
       _id: { $in: leadIds },
       ...ownershipCondition,
-    }).select(
-      "_id hrId assignedTo candidateName"
-    );
+    }).select("_id hrId assignedTo candidateName");
 
     // =====================================================
     // NO ACCESSIBLE LEADS
@@ -868,8 +847,7 @@ exports.assignSilgate = async (req, res) => {
 
     if (leads.length === 0) {
       return res.status(403).json({
-        message:
-          "You are not authorized to assign the selected leads.",
+        message: "You are not authorized to assign the selected leads.",
       });
     }
 
@@ -877,9 +855,7 @@ exports.assignSilgate = async (req, res) => {
     // GET VALID LEAD IDS
     // =====================================================
 
-    const validLeadIds = leads.map(
-      (lead) => lead._id
-    );
+    const validLeadIds = leads.map((lead) => lead._id);
 
     // =====================================================
     // ASSIGN LEADS
@@ -893,7 +869,7 @@ exports.assignSilgate = async (req, res) => {
         $set: {
           assignedTo: assignedHR._id,
         },
-      }
+      },
     );
 
     // =====================================================
@@ -937,14 +913,10 @@ exports.assignSilgate = async (req, res) => {
       data: updatedLeads,
     });
   } catch (error) {
-    console.error(
-      "Assign Silgate Error:",
-      error
-    );
+    console.error("Assign Silgate Error:", error);
 
     return res.status(500).json({
       message: error.message,
     });
   }
 };
-
