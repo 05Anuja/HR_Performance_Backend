@@ -100,16 +100,16 @@ exports.addTalent = async (req, res) => {
         .json({ message: "A valid 10-digit Candidate's Phone is required." });
     }
 
-    const existingTalentCornerPhone = await TalentCorner.findOne({
-      candidatePhone,
-    });
+    // const existingTalentCornerPhone = await TalentCorner.findOne({
+    //   candidatePhone,
+    // });
 
-    if (existingTalentCornerPhone) {
-      return res.status(400).json({
-        message:
-          "This Candidate's Phone number already exists in Talent Corner.",
-      });
-    }
+    // if (existingTalentCornerPhone) {
+    //   return res.status(400).json({
+    //     message:
+    //       "This Candidate's Phone number already exists in Talent Corner.",
+    //   });
+    // }
 
     if (!resumeStatus || !["Sent", "Not Sent"].includes(resumeStatus)) {
       return res
@@ -441,17 +441,17 @@ exports.updateTalent = async (req, res) => {
           .json({ message: "A valid 10-digit Candidate's Phone is required." });
       }
 
-      const existingTalentCorner = await TalentCorner.findOne({
-        candidatePhone: phone,
-        _id: { $ne: id },
-      });
+      // const existingTalentCorner = await TalentCorner.findOne({
+      //   candidatePhone: phone,
+      //   _id: { $ne: id },
+      // });
 
-      if (existingTalentCorner) {
-        return res.status(400).json({
-          message:
-            "This Candidate's Phone number already exists in Talent Corner.",
-        });
-      }
+      // if (existingTalentCorner) {
+      //   return res.status(400).json({
+      //     message:
+      //       "This Candidate's Phone number already exists in Talent Corner.",
+      //   });
+      // }
       talentLog.candidatePhone = candidatePhone;
     }
 

@@ -43,15 +43,15 @@ exports.addSilgate = async (req, res) => {
         .json({ message: "A valid 10-digit Candidate's Phone is required." });
     }
 
-    const existingCandidate = await Silgate.findOne({
-      candidatePhone: candidatePhone,
-    });
+    // const existingCandidate = await Silgate.findOne({
+    //   candidatePhone: candidatePhone,
+    // });
 
-    if (existingCandidate) {
-      return res.status(400).json({
-        message: "A candidate with this phone number already exists.",
-      });
-    }
+    // if (existingCandidate) {
+    //   return res.status(400).json({
+    //     message: "A candidate with this phone number already exists.",
+    //   });
+    // }
 
     if (!language || !language.trim()) {
       return res.status(400).json({ message: "Language is required." });
@@ -380,16 +380,16 @@ exports.updateSilgate = async (req, res) => {
         });
       }
 
-      const existingSilgate = await Silgate.findOne({
-        candidatePhone: phone,
-        _id: { $ne: id },
-      });
+      // const existingSilgate = await Silgate.findOne({
+      //   candidatePhone: phone,
+      //   _id: { $ne: id },
+      // });
 
-      if (existingSilgate) {
-        return res.status(400).json({
-          message: "This Candidate's Phone number already exists in Silgate.",
-        });
-      }
+      // if (existingSilgate) {
+      //   return res.status(400).json({
+      //     message: "This Candidate's Phone number already exists in Silgate.",
+      //   });
+      // }
 
       silgateLog.candidatePhone = phone;
     }

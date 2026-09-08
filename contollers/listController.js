@@ -121,25 +121,15 @@ exports.createList = async (req, res) => {
 //   }
 // };
 
-
 exports.getLists = async (req, res) => {
   try {
-    const {
-      campaign,
-      user_id,
-      search,
-      page = 1,
-      limit = 10,
-    } = req.query;
+    const { campaign, user_id, search, page = 1, limit = 10 } = req.query;
 
     const query = {};
 
     // Campaign filter
     if (campaign) {
-      query.campaign = new RegExp(
-        `^${campaign.trim()}$`,
-        "i"
-      );
+      query.campaign = new RegExp(`^${campaign.trim()}$`, "i");
     }
 
     // User filter
@@ -159,28 +149,18 @@ exports.getLists = async (req, res) => {
         .trim()
         .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-      query.name = new RegExp(
-        escapedSearch,
-        "i"
-      );
+      query.name = new RegExp(escapedSearch, "i");
     }
 
     // Pagination
-    const pageNum = Math.max(
-      parseInt(page, 10) || 1,
-      1
-    );
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
 
-    const limitNum = Math.min(
-      Math.max(parseInt(limit, 10) || 10, 1),
-      100
-    );
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
 
     const skip = (pageNum - 1) * limitNum;
 
     // Total records
-    const totalLists =
-      await List.countDocuments(query);
+    const totalLists = await List.countDocuments(query);
 
     // Paginated records
     const lists = await List.find(query)
@@ -190,8 +170,7 @@ exports.getLists = async (req, res) => {
       .skip(skip)
       .limit(limitNum);
 
-    const totalPages =
-      Math.ceil(totalLists / limitNum) || 1;
+    const totalPages = Math.ceil(totalLists / limitNum) || 1;
 
     return res.status(200).json({
       success: true,
@@ -378,991 +357,6 @@ exports.deleteList = async (req, res) => {
  * @route   POST /api/lists/import
  * @access  Private (Authenticated users)
  */
-// exports.uploadAndDistribute = async (req, res) => {
-//   if (!req.file) {
-//     return res
-//       .status(400)
-//       .json({ message: "Lead file (.csv or .xlsx) is required." });
-//   }
-
-//   const filePath = req.file.path;
-
-//   try {
-//     const {
-//       listId: providedListId,
-//       selectedUserIds,
-//       assignedTo,
-//       leadsource,
-//       source,
-//       skipDuplicates,
-//     } = req.body;
-
-//     const listId =
-//       providedListId ||
-//       req.body.listId ||
-//       req.params.id;
-
-//     const shouldSkipDuplicates =
-//       skipDuplicates === true ||
-//       skipDuplicates === "true";
-
-//     // =====================================================
-//     // VALIDATE LIST ID
-//     // =====================================================
-
-//     if (
-//       !listId ||
-//       !mongoose.Types.ObjectId.isValid(listId)
-//     ) {
-//       if (fs.existsSync(filePath)) {
-//         fs.unlinkSync(filePath);
-//       }
-
-//       return res.status(400).json({
-//         message: "A valid listId is required.",
-//       });
-//     }
-
-//     // =====================================================
-//     // FIND LIST
-//     // =====================================================
-
-//     const list = await List.findById(listId);
-
-//     if (!list) {
-//       if (fs.existsSync(filePath)) {
-//         fs.unlinkSync(filePath);
-//       }
-
-//       return res.status(404).json({
-//         message: "Lead List not found.",
-//       });
-//     }
-
-//     // =====================================================
-//     // CHECK CAMPAIGN
-//     // =====================================================
-
-//     const campaign = list.campaign;
-
-//     if (!campaign) {
-//       if (fs.existsSync(filePath)) {
-//         fs.unlinkSync(filePath);
-//       }
-
-//       return res.status(400).json({
-//         message:
-//           "This list has no campaign attached. Please update the list with a campaign first.",
-//       });
-//     }
-
-//     // =====================================================
-//     // PARSE CSV / EXCEL FILE
-//     // =====================================================
-
-//     const leadsArray = await parseLeadFile(filePath);
-
-//     if (
-//       !leadsArray ||
-//       leadsArray.length === 0
-//     ) {
-//       if (fs.existsSync(filePath)) {
-//         fs.unlinkSync(filePath);
-//       }
-
-//       return res.status(400).json({
-//         message:
-//           "The uploaded file contains no data rows.",
-//       });
-//     }
-
-//     // =====================================================
-//     // DETERMINE CAMPAIGN MODEL
-//     // =====================================================
-
-//     const campaignNormalized = campaign
-//       .toLowerCase()
-//       .replace(/[\s_]+/g, "");
-
-//     let TargetModel = null;
-
-//     if (
-//       campaignNormalized.includes("silgate")
-//     ) {
-//       TargetModel = Silgate;
-//     } else if (
-//       campaignNormalized.includes("talent") ||
-//       campaignNormalized.includes("corner")
-//     ) {
-//       TargetModel = TalentCorner;
-//     } else {
-//       if (fs.existsSync(filePath)) {
-//         fs.unlinkSync(filePath);
-//       }
-
-//       return res.status(400).json({
-//         message:
-//           `Unsupported campaign type '${campaign}'. ` +
-//           `Leads can only be imported to 'Silgate' or 'Talent Corner'.`,
-//       });
-//     }
-
-//     // =====================================================
-//     // PHASE 1:
-//     // VALIDATE PHONE NUMBERS
-//     // CHECK DUPLICATES INSIDE FILE
-//     // =====================================================
-
-//     const filePhoneMap = new Map();
-//     const uniquePhonesFromFile = new Set();
-
-//     const rowsToProcess = [];
-//     const duplicateRecords = [];
-
-//     let intraFileDuplicatesCount = 0;
-
-//     for (
-//       const [index, lead]
-//       of leadsArray.entries()
-//     ) {
-//       const rowNum = index + 2;
-
-//       const rawPhone = String(
-//         lead.candidatePhone ||
-//         lead.candidatephone ||
-//         lead.phone ||
-//         lead.mobile ||
-//         lead.contact ||
-//         ""
-//       ).replace(/\D/g, "");
-
-//       // ===================================================
-//       // PHONE VALIDATION
-//       // ===================================================
-
-//       if (
-//         !rawPhone ||
-//         rawPhone.length !== 10
-//       ) {
-//         if (fs.existsSync(filePath)) {
-//           fs.unlinkSync(filePath);
-//         }
-
-//         return res.status(400).json({
-//           message:
-//             `Invalid or missing 10-digit mobile number at row ${rowNum} ` +
-//             `(${lead.candidatePhone || lead.phone || "empty"}).`,
-//         });
-//       }
-
-//       // ===================================================
-//       // FILE DUPLICATE CHECK
-//       // ===================================================
-
-//       if (filePhoneMap.has(rawPhone)) {
-//         const originalRow =
-//           filePhoneMap.get(rawPhone);
-
-//         duplicateRecords.push({
-//           phone: rawPhone,
-//           rowNum,
-//           type: "file",
-//           details:
-//             `Duplicate in uploaded file (first seen at row ${originalRow})`,
-//         });
-
-//         intraFileDuplicatesCount++;
-
-//         continue;
-//       }
-
-//       filePhoneMap.set(
-//         rawPhone,
-//         rowNum
-//       );
-
-//       uniquePhonesFromFile.add(
-//         rawPhone
-//       );
-
-//       rowsToProcess.push({
-//         lead,
-//         rawPhone,
-//         rowNum,
-//       });
-//     }
-
-//     // =====================================================
-//     // PHASE 2:
-//     // CHECK DATABASE DUPLICATES
-//     // =====================================================
-
-//     const phonesToCheck =
-//       Array.from(uniquePhonesFromFile);
-
-//     const existingDbDocs =
-//       await TargetModel.find({
-//         candidatePhone: {
-//           $in: phonesToCheck,
-//         },
-//       }).select("candidatePhone");
-
-//     const existingDbPhonesSet =
-//       new Set(
-//         existingDbDocs.map(
-//           (doc) => doc.candidatePhone
-//         )
-//       );
-
-//     let dbDuplicatesCount = 0;
-
-//     const finalLeadsToInsert = [];
-
-//     for (
-//       const item of rowsToProcess
-//     ) {
-//       if (
-//         existingDbPhonesSet.has(
-//           item.rawPhone
-//         )
-//       ) {
-//         duplicateRecords.push({
-//           phone: item.rawPhone,
-//           rowNum: item.rowNum,
-//           type: "database",
-//           details:
-//             "Already exists in database",
-//         });
-
-//         dbDuplicatesCount++;
-
-//         continue;
-//       }
-
-//       finalLeadsToInsert.push(item);
-//     }
-
-//     const skippedCount =
-//       intraFileDuplicatesCount +
-//       dbDuplicatesCount;
-
-//     // =====================================================
-//     // REJECT DUPLICATES IF skipDuplicates = false
-//     // =====================================================
-
-//     if (
-//       !shouldSkipDuplicates &&
-//       duplicateRecords.length > 0
-//     ) {
-//       if (fs.existsSync(filePath)) {
-//         fs.unlinkSync(filePath);
-//       }
-
-//       const duplicateSummary =
-//         duplicateRecords
-//           .map(
-//             (d) =>
-//               `Row ${d.rowNum} (${d.phone}): ` +
-//               `${d.type === "file"
-//                 ? `duplicate in file (first seen at row ${filePhoneMap.get(
-//                   d.phone
-//                 )})`
-//                 : "already exists in database"
-//               }`
-//           )
-//           .join("; ");
-
-//       return res.status(400).json({
-//         message:
-//           `Duplicate lead(s) found: ${duplicateSummary}.`,
-
-//         duplicateCount:
-//           duplicateRecords.length,
-
-//         duplicates:
-//           duplicateRecords,
-//       });
-//     }
-
-//     // =====================================================
-//     // PARSE SELECTED USERS
-//     // =====================================================
-
-//     let userIds = [];
-
-//     if (selectedUserIds) {
-//       if (
-//         Array.isArray(selectedUserIds)
-//       ) {
-//         userIds =
-//           selectedUserIds;
-//       } else if (
-//         typeof selectedUserIds === "string"
-//       ) {
-//         try {
-//           userIds =
-//             JSON.parse(
-//               selectedUserIds
-//             );
-//         } catch (e) {
-//           userIds =
-//             selectedUserIds
-//               .split(",")
-//               .map((s) =>
-//                 s.trim()
-//               )
-//               .filter(Boolean);
-//         }
-//       }
-//     }
-
-//     // =====================================================
-//     // GET SELECTED USERS
-//     // =====================================================
-
-//     let selectedUsers = [];
-
-//     if (userIds.length > 0) {
-//       selectedUsers =
-//         await User.find({
-//           _id: {
-//             $in: userIds,
-//           },
-//         }).select(
-//           "_id name email role"
-//         );
-
-//       if (
-//         !selectedUsers.length
-//       ) {
-//         if (
-//           fs.existsSync(filePath)
-//         ) {
-//           fs.unlinkSync(filePath);
-//         }
-
-//         return res.status(404).json({
-//           message:
-//             "Selected users not found.",
-//         });
-//       }
-//     }
-
-//     // =====================================================
-//     // VALIDATE assignedTo
-//     // =====================================================
-
-//     let assignedUserId = null;
-
-//     if (
-//       assignedTo !== undefined &&
-//       assignedTo !== null &&
-//       assignedTo !== ""
-//     ) {
-//       if (
-//         !mongoose.Types.ObjectId.isValid(
-//           assignedTo
-//         )
-//       ) {
-//         if (
-//           fs.existsSync(filePath)
-//         ) {
-//           fs.unlinkSync(filePath);
-//         }
-
-//         return res.status(400).json({
-//           message:
-//             "Invalid assignedTo user ID.",
-//         });
-//       }
-
-//       const assignedUser =
-//         await User.findOne({
-//           _id: assignedTo,
-//           role: "hr",
-//         }).select("_id");
-
-//       if (!assignedUser) {
-//         if (
-//           fs.existsSync(filePath)
-//         ) {
-//           fs.unlinkSync(filePath);
-//         }
-
-//         return res.status(404).json({
-//           message:
-//             "The assignedTo user was not found or is not an HR user.",
-//         });
-//       }
-
-//       assignedUserId =
-//         assignedUser._id;
-//     }
-
-//     // =====================================================
-//     // SOURCE
-//     // =====================================================
-
-//     const effectiveSource =
-//       leadsource ||
-//       source ||
-//       "File Upload";
-
-//     // =====================================================
-//     // AUTO DISTRIBUTION
-//     // =====================================================
-
-//     let userIndex = 0;
-
-//     const isAutoDistribute =
-//       selectedUsers.length > 0;
-
-//     const getAssignedUserId = () => {
-//       if (isAutoDistribute) {
-//         const user =
-//           selectedUsers[
-//           userIndex
-//           ];
-
-//         userIndex =
-//           (userIndex + 1) %
-//           selectedUsers.length;
-
-//         return user._id;
-//       }
-
-//       return (
-//         list.user_id ||
-//         req.user.id
-//       );
-//     };
-
-//     // =====================================================
-//     // INSERTED DOCUMENTS
-//     // =====================================================
-
-//     let insertedDocs = [];
-
-//     // =====================================================
-//     // CAMPAIGN 1: SILGATE
-//     // =====================================================
-
-//     if (
-//       campaignNormalized.includes(
-//         "silgate"
-//       )
-//     ) {
-//       const newLeads = [];
-
-//       for (
-//         const {
-//           lead,
-//           rawPhone,
-//           rowNum,
-//         } of finalLeadsToInsert
-//       ) {
-//         // ===============================================
-//         // CANDIDATE NAME
-//         // ===============================================
-
-//         const candidateName =
-//           lead.candidateName ||
-//           lead.candidatename ||
-//           lead.name ||
-//           lead.candidate ||
-//           "";
-
-//         if (
-//           !candidateName ||
-//           !candidateName.trim()
-//         ) {
-//           if (
-//             fs.existsSync(filePath)
-//           ) {
-//             fs.unlinkSync(filePath);
-//           }
-
-//           return res.status(400).json({
-//             message:
-//               `Candidate Name is required at row ${rowNum} for Silgate.`,
-//           });
-//         }
-
-//         // ===============================================
-//         // DESIGNATION
-//         // ===============================================
-
-//         const candidateDesignation =
-//           lead.candidateDesignation ||
-//           lead.candidatedesignation ||
-//           lead.designation ||
-//           lead.role ||
-//           "";
-
-//         if (
-//           !candidateDesignation ||
-//           !candidateDesignation.trim()
-//         ) {
-//           if (
-//             fs.existsSync(filePath)
-//           ) {
-//             fs.unlinkSync(filePath);
-//           }
-
-//           return res.status(400).json({
-//             message:
-//               `Candidate Designation is required at row ${rowNum} for Silgate.`,
-//           });
-//         }
-
-//         // ===============================================
-//         // LANGUAGE
-//         // ===============================================
-
-//         const language =
-//           lead.language ||
-//           lead.lang ||
-//           "Hindi";
-
-//         // ===============================================
-//         // DISPOSITION
-//         // ===============================================
-
-//         const disposition =
-//           lead.disposition ||
-//           "New Lead";
-
-//         // ===============================================
-//         // LOCATION
-//         // ===============================================
-
-//         const candidateLocation =
-//           lead.candidateLocation ||
-//           lead.candidatelocation ||
-//           lead.location ||
-//           lead.city ||
-//           "";
-
-//         // ===============================================
-//         // SOURCE
-//         // ===============================================
-
-//         const itemSource =
-//           lead.source ||
-//           effectiveSource;
-
-//         // ===============================================
-//         // RESUME STATUS
-//         // ===============================================
-
-//         const resumeStatus =
-//           [
-//             "Sent",
-//             "Not Sent",
-//           ].includes(
-//             lead.resumeStatus ||
-//             lead.resumestatus
-//           )
-//             ? lead.resumeStatus ||
-//             lead.resumestatus
-//             : "Not Sent";
-
-//         // ===============================================
-//         // EXPERIENCE
-//         // ===============================================
-
-//         const experience =
-//           lead.experience ||
-//           lead.Experience ||
-//           lead.experienceStatus ||
-//           lead.experiencestatus;
-
-//         if (
-//           ![
-//             "Experienced",
-//             "Fresher",
-//           ].includes(experience)
-//         ) {
-//           if (
-//             fs.existsSync(filePath)
-//           ) {
-//             fs.unlinkSync(filePath);
-//           }
-
-//           return res.status(400).json({
-//             message:
-//               `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
-//           });
-//         }
-
-//         // ===============================================
-//         // CREATE SILGATE LEAD
-//         // ===============================================
-
-//         newLeads.push({
-//           hrId:
-//             getAssignedUserId(),
-
-//           assignedTo:
-//             assignedUserId,
-
-//           candidateName:
-//             candidateName.trim(),
-
-//           candidatePhone:
-//             rawPhone,
-
-//           candidateLocation:
-//             candidateLocation
-//               ? candidateLocation.trim()
-//               : "",
-
-//           language:
-//             language.trim(),
-
-//           disposition:
-//             disposition.trim(),
-
-//           source:
-//             itemSource.trim(),
-
-//           candidateDesignation:
-//             candidateDesignation.trim(),
-
-//           resumeStatus,
-
-//           experience,
-
-//           listId:
-//             list._id,
-//         });
-//       }
-
-//       // ===============================================
-//       // INSERT SILGATE LEADS
-//       // ===============================================
-
-//       if (
-//         newLeads.length > 0
-//       ) {
-//         insertedDocs =
-//           await Silgate.insertMany(
-//             newLeads
-//           );
-//       }
-//     }
-
-//     // =====================================================
-//     // CAMPAIGN 2: TALENT CORNER
-//     // =====================================================
-
-//     else if (
-//       campaignNormalized.includes(
-//         "talent"
-//       ) ||
-//       campaignNormalized.includes(
-//         "corner"
-//       )
-//     ) {
-//       const newLeads = [];
-
-//       for (
-//         const {
-//           lead,
-//           rawPhone,
-//           rowNum,
-//         } of finalLeadsToInsert
-//       ) {
-//         // ===============================================
-//         // CANDIDATE DESIGNATION
-//         // ===============================================
-
-//         const candidateDesignation =
-//           lead.candidateDesignation ||
-//           lead.candidatedesignation ||
-//           lead.designation ||
-//           lead.role ||
-//           "";
-
-//         if (
-//           !candidateDesignation ||
-//           !candidateDesignation.trim()
-//         ) {
-//           if (
-//             fs.existsSync(filePath)
-//           ) {
-//             fs.unlinkSync(filePath);
-//           }
-
-//           return res.status(400).json({
-//             message:
-//               `Candidate Designation is required at row ${rowNum} for Talent Corner.`,
-//           });
-//         }
-
-//         // ===============================================
-//         // CANDIDATE NAME
-//         // ===============================================
-
-//         const candidateName =
-//           lead.candidateName ||
-//           lead.candidatename ||
-//           lead.name ||
-//           "";
-
-//         // ===============================================
-//         // CANDIDATE LOCATION
-//         // ===============================================
-
-//         const candidateLocation =
-//           lead.candidateLocation ||
-//           lead.candidatelocation ||
-//           lead.location ||
-//           lead.city ||
-//           "";
-
-//         // ===============================================
-//         // COMPANY NAME
-//         // ===============================================
-
-//         const companyName =
-//           lead.companyName ||
-//           lead.companyname ||
-//           lead.company ||
-//           "";
-
-//         // ===============================================
-//         // INTERVIEW STATUS
-//         // ===============================================
-
-//         const interviewStatus =
-//           lead.interviewStatus ||
-//           lead.interviewstatus ||
-//           lead.status ||
-//           "";
-
-//         // ===============================================
-//         // SOURCE
-//         // ===============================================
-
-//         const itemSource =
-//           lead.source ||
-//           effectiveSource;
-
-//         // ===============================================
-//         // RESUME STATUS
-//         // ===============================================
-
-//         const resumeStatus =
-//           [
-//             "Sent",
-//             "Not Sent",
-//           ].includes(
-//             lead.resumeStatus ||
-//             lead.resumestatus
-//           )
-//             ? lead.resumeStatus ||
-//             lead.resumestatus
-//             : "Not Sent";
-
-//         // ===============================================
-//         // EXPERIENCE
-//         // ===============================================
-
-//         const experience =
-//           lead.experience ||
-//           lead.Experience ||
-//           lead.experienceStatus ||
-//           lead.experiencestatus;
-
-//         if (
-//           ![
-//             "Experienced",
-//             "Fresher",
-//           ].includes(experience)
-//         ) {
-//           if (
-//             fs.existsSync(filePath)
-//           ) {
-//             fs.unlinkSync(filePath);
-//           }
-
-//           return res.status(400).json({
-//             message:
-//               `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Talent Corner.`,
-//           });
-//         }
-
-//         // ===============================================
-//         // CREATE TALENT CORNER LEAD
-//         // ===============================================
-
-//         newLeads.push({
-//           hrId:
-//             getAssignedUserId(),
-
-//           assignedTo:
-//             assignedUserId,
-
-//           candidateName:
-//             candidateName
-//               ? candidateName.trim()
-//               : "",
-
-//           candidatePhone:
-//             rawPhone,
-
-//           candidateLocation:
-//             candidateLocation
-//               ? candidateLocation.trim()
-//               : "",
-
-//           candidateDesignation:
-//             candidateDesignation.trim(),
-
-//           source:
-//             itemSource
-//               ? itemSource.trim()
-//               : "",
-
-//           companyName:
-//             companyName
-//               ? companyName.trim()
-//               : "",
-
-//           interviewStatus:
-//             interviewStatus
-//               ? interviewStatus.trim()
-//               : "",
-
-//           resumeStatus,
-
-//           // IMPORTANT:
-//           // Talent Corner requires experience
-//           experience,
-
-//           listId:
-//             list._id,
-//         });
-//       }
-
-//       // ===============================================
-//       // INSERT TALENT CORNER LEADS
-//       // ===============================================
-
-//       if (
-//         newLeads.length > 0
-//       ) {
-//         insertedDocs =
-//           await TalentCorner.insertMany(
-//             newLeads
-//           );
-//       }
-//     }
-
-//     // =====================================================
-//     // CLEAN UP UPLOADED FILE
-//     // =====================================================
-
-//     if (
-//       fs.existsSync(filePath)
-//     ) {
-//       fs.unlinkSync(filePath);
-//     }
-
-//     // =====================================================
-//     // AUDIT LOG
-//     // =====================================================
-
-//     await AuditLog.create({
-//       action: "UPLOAD_LEADS",
-
-//       details:
-//         `${insertedDocs.length} lead(s) uploaded from CSV/Excel ` +
-//         `for campaign '${campaign}' under list '${list.name}' ` +
-//         `by user '${req.user.name}' ` +
-//         `(${skippedCount} duplicate(s) skipped).`,
-
-//       performedBy:
-//         req.user.id,
-
-//       listId:
-//         list._id,
-//     });
-
-//     // =====================================================
-//     // DUPLICATE SUMMARY
-//     // =====================================================
-
-//     const duplicateSummary =
-//       duplicateRecords.length > 0
-//         ? ` ${duplicateRecords.length} duplicate lead(s) skipped: ` +
-//         duplicateRecords
-//           .map(
-//             (d) =>
-//               `Row ${d.rowNum} (${d.phone}): ` +
-//               `${d.type === "file"
-//                 ? `duplicate in file (first seen at row ${filePhoneMap.get(
-//                   d.phone
-//                 )})`
-//                 : "already exists in database"
-//               }`
-//           )
-//           .join("; ")
-//         : "";
-
-//     // =====================================================
-//     // FINAL RESPONSE
-//     // =====================================================
-
-//     return res.status(201).json({
-//       success: true,
-
-//       message:
-//         `${insertedDocs.length} lead(s) imported successfully ` +
-//         `into "${campaign}" collection in ` +
-//         `${isAutoDistribute
-//           ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
-//           : "Single User Mode"
-//         }.` +
-//         duplicateSummary,
-
-//       insertedCount:
-//         insertedDocs.length,
-
-//       skippedCount,
-
-//       duplicates:
-//         duplicateRecords,
-
-//       campaign,
-
-//       data:
-//         insertedDocs,
-//     });
-//   } catch (err) {
-//     // =====================================================
-//     // CLEAN UP FILE ON ERROR
-//     // =====================================================
-
-//     if (
-//       filePath &&
-//       fs.existsSync(filePath)
-//     ) {
-//       fs.unlinkSync(filePath);
-//     }
-
-//     console.error(
-//       "uploadAndDistribute Error:",
-//       err
-//     );
-
-//     return res.status(500).json({
-//       message:
-//         err.message,
-//     });
-//   }
-// };
 
 exports.uploadAndDistribute = async (req, res) => {
   if (!req.file) {
@@ -1380,13 +374,9 @@ exports.uploadAndDistribute = async (req, res) => {
       assignedTo,
       leadsource,
       source,
-      skipDuplicates,
     } = req.body;
 
     const listId = providedListId || req.body.listId || req.params.id;
-
-    const shouldSkipDuplicates =
-      skipDuplicates === true || skipDuplicates === "true";
 
     // =====================================================
     // VALIDATE LIST ID
@@ -1438,8 +428,9 @@ exports.uploadAndDistribute = async (req, res) => {
     // =====================================================
     // PARSE CSV / EXCEL FILE
     // =====================================================
+
     const parsedFile = await parseLeadFile(filePath);
-    // const leadsArray = await parseLeadFile(filePath);
+
     const leadsArray = parsedFile.rows;
     const uploadedHeaders = parsedFile.headers;
 
@@ -1483,17 +474,6 @@ exports.uploadAndDistribute = async (req, res) => {
     // =====================================================
     // VALIDATE CSV HEADERS
     // =====================================================
-    //
-    // Silgate and Talent Corner have different CSV
-    // structures.
-    //
-    // This prevents:
-    //
-    // Silgate CSV       -> Talent Corner ❌
-    // Talent Corner CSV -> Silgate       ❌
-    //
-    // Only the correct CSV structure is accepted.
-    // =====================================================
 
     const normalizeHeader = (header) => {
       return String(header || "")
@@ -1502,10 +482,6 @@ exports.uploadAndDistribute = async (req, res) => {
         .replace(/[^a-z0-9]/g, "");
     };
 
-    // Get headers from the first parsed row.
-    // const uploadedHeaders = Object.keys(
-    //   leadsArray[0] || {}
-    // )
     const normalizeUploadedHeaders = uploadedHeaders
       .map(normalizeHeader)
       .filter(Boolean);
@@ -1572,9 +548,14 @@ exports.uploadAndDistribute = async (req, res) => {
       (header) => !expectedHeaderSet.has(normalizeHeader(header)),
     );
 
+    // =====================================================
+    // CHECK DUPLICATE HEADERS
+    // =====================================================
+
     const hasDuplicateHeaders =
       new Set(normalizeUploadedHeaders).size !==
       normalizeUploadedHeaders.length;
+
     // =====================================================
     // VALIDATE COMPLETE HEADER STRUCTURE
     // =====================================================
@@ -1612,18 +593,17 @@ exports.uploadAndDistribute = async (req, res) => {
     }
 
     // =====================================================
-    // PHASE 1:
-    // VALIDATE PHONE NUMBERS
-    // CHECK DUPLICATES INSIDE FILE
+    // VALIDATE ALL PHONE NUMBERS
+    //
+    // DUPLICATES ARE ALLOWED
+    //
+    // We intentionally DO NOT:
+    // 1. Check duplicate phones inside the uploaded file
+    // 2. Check duplicate phones in the database
+    // 3. Skip duplicate rows
     // =====================================================
 
-    const filePhoneMap = new Map();
-    const uniquePhonesFromFile = new Set();
-
-    const rowsToProcess = [];
-    const duplicateRecords = [];
-
-    let intraFileDuplicatesCount = 0;
+    const finalLeadsToInsert = [];
 
     for (const [index, lead] of leadsArray.entries()) {
       const rowNum = index + 2;
@@ -1654,29 +634,12 @@ exports.uploadAndDistribute = async (req, res) => {
       }
 
       // ===================================================
-      // FILE DUPLICATE CHECK
+      // ADD EVERY ROW
+      //
+      // No duplicate check here.
       // ===================================================
 
-      if (filePhoneMap.has(rawPhone)) {
-        const originalRow = filePhoneMap.get(rawPhone);
-
-        duplicateRecords.push({
-          phone: rawPhone,
-          rowNum,
-          type: "file",
-          details: `Duplicate in uploaded file (first seen at row ${originalRow})`,
-        });
-
-        intraFileDuplicatesCount++;
-
-        continue;
-      }
-
-      filePhoneMap.set(rawPhone, rowNum);
-
-      uniquePhonesFromFile.add(rawPhone);
-
-      rowsToProcess.push({
+      finalLeadsToInsert.push({
         lead,
         rawPhone,
         rowNum,
@@ -1684,76 +647,11 @@ exports.uploadAndDistribute = async (req, res) => {
     }
 
     // =====================================================
-    // PHASE 2:
-    // CHECK DATABASE DUPLICATES
+    // DUPLICATES ARE ALLOWED
     // =====================================================
 
-    const phonesToCheck = Array.from(uniquePhonesFromFile);
-
-    const existingDbDocs = await TargetModel.find({
-      candidatePhone: {
-        $in: phonesToCheck,
-      },
-    }).select("candidatePhone");
-
-    const existingDbPhonesSet = new Set(
-      existingDbDocs.map((doc) => doc.candidatePhone),
-    );
-
-    let dbDuplicatesCount = 0;
-
-    const finalLeadsToInsert = [];
-
-    for (const item of rowsToProcess) {
-      if (existingDbPhonesSet.has(item.rawPhone)) {
-        duplicateRecords.push({
-          phone: item.rawPhone,
-          rowNum: item.rowNum,
-          type: "database",
-          details: "Already exists in database",
-        });
-
-        dbDuplicatesCount++;
-
-        continue;
-      }
-
-      finalLeadsToInsert.push(item);
-    }
-
-    const skippedCount = intraFileDuplicatesCount + dbDuplicatesCount;
-
-    // =====================================================
-    // REJECT DUPLICATES IF skipDuplicates = false
-    // =====================================================
-
-    if (!shouldSkipDuplicates && duplicateRecords.length > 0) {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-
-      const duplicateSummary = duplicateRecords
-        .map(
-          (d) =>
-            `Row ${d.rowNum} (${d.phone}): ` +
-            `${
-              d.type === "file"
-                ? `duplicate in file (first seen at row ${filePhoneMap.get(
-                    d.phone,
-                  )})`
-                : "already exists in database"
-            }`,
-        )
-        .join("; ");
-
-      return res.status(400).json({
-        message: `Duplicate lead(s) found: ${duplicateSummary}.`,
-
-        duplicateCount: duplicateRecords.length,
-
-        duplicates: duplicateRecords,
-      });
-    }
+    const skippedCount = 0;
+    const duplicateRecords = [];
 
     // =====================================================
     // PARSE SELECTED USERS
@@ -2140,8 +1038,6 @@ exports.uploadAndDistribute = async (req, res) => {
 
           resumeStatus,
 
-          // IMPORTANT:
-          // Talent Corner requires experience
           experience,
 
           listId: list._id,
@@ -2175,35 +1071,12 @@ exports.uploadAndDistribute = async (req, res) => {
       details:
         `${insertedDocs.length} lead(s) uploaded from CSV/Excel ` +
         `for campaign '${campaign}' under list '${list.name}' ` +
-        `by user '${req.user.name}' ` +
-        `(${skippedCount} duplicate(s) skipped).`,
+        `by user '${req.user.name}'.`,
 
       performedBy: req.user.id,
 
       listId: list._id,
     });
-
-    // =====================================================
-    // DUPLICATE SUMMARY
-    // =====================================================
-
-    const duplicateSummary =
-      duplicateRecords.length > 0
-        ? ` ${duplicateRecords.length} duplicate lead(s) skipped: ` +
-          duplicateRecords
-            .map(
-              (d) =>
-                `Row ${d.rowNum} (${d.phone}): ` +
-                `${
-                  d.type === "file"
-                    ? `duplicate in file (first seen at row ${filePhoneMap.get(
-                        d.phone,
-                      )})`
-                    : "already exists in database"
-                }`,
-            )
-            .join("; ")
-        : "";
 
     // =====================================================
     // FINAL RESPONSE
@@ -2219,14 +1092,13 @@ exports.uploadAndDistribute = async (req, res) => {
           isAutoDistribute
             ? `Auto Distribution Mode across ${selectedUsers.length} user(s)`
             : "Single User Mode"
-        }.` +
-        duplicateSummary,
+        }.`,
 
       insertedCount: insertedDocs.length,
 
-      skippedCount,
+      skippedCount: 0,
 
-      duplicates: duplicateRecords,
+      duplicates: [],
 
       campaign,
 

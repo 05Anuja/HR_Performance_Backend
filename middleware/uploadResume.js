@@ -52,8 +52,8 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 
-const uploadDir = path.join(__dirname, "..", "uploads", "resumes");
-// const uploadDir = "/opt/data/hrmp/uploads/resumes"
+// const uploadDir = path.join(__dirname, "..", "uploads", "resumes");
+const uploadDir = "/opt/data/hrmp/uploads/resumes";
 
 // Ensure the uploads folder exists
 if (!fs.existsSync(uploadDir)) {

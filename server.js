@@ -13,10 +13,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use("/uploads", express.static(path.join(__dirname, "uploads"))); //local
+// app.use("/uploads", express.static(path.join(__dirname, "uploads"))); //local
 
 // Production
-// app.use("/uploads", express.static("/opt/data/hrmp/uploads"));
+app.use("/uploads", express.static("/opt/data/hrmp/uploads"));
 
 // server.js
 app.use("/api/auth", require("./routes/authRoutes"));
