@@ -805,15 +805,15 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.role ||
           "";
 
-        if (!candidateDesignation || !candidateDesignation.trim()) {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
+        // if (!candidateDesignation || !candidateDesignation.trim()) {
+        //   if (fs.existsSync(filePath)) {
+        //     fs.unlinkSync(filePath);
+        //   }
 
-          return res.status(400).json({
-            message: `Candidate Designation is required at row ${rowNum} for Silgate.`,
-          });
-        }
+        //   return res.status(400).json({
+        //     message: `Candidate Designation is required at row ${rowNum} for Silgate.`,
+        //   });
+        // }
 
         // ===============================================
         // LANGUAGE
@@ -864,15 +864,15 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.experienceStatus ||
           lead.experiencestatus;
 
-        if (!["Experienced", "Fresher"].includes(experience)) {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
+        // if (!["Experienced", "Fresher"].includes(experience)) {
+        //   if (fs.existsSync(filePath)) {
+        //     fs.unlinkSync(filePath);
+        //   }
 
-          return res.status(400).json({
-            message: `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
-          });
-        }
+        //   return res.status(400).json({
+        //     message: `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Silgate.`,
+        //   });
+        // }
 
         // ===============================================
         // CREATE SILGATE LEAD
@@ -935,15 +935,15 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.role ||
           "";
 
-        if (!candidateDesignation || !candidateDesignation.trim()) {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
+        // if (!candidateDesignation || !candidateDesignation.trim()) {
+        //   if (fs.existsSync(filePath)) {
+        //     fs.unlinkSync(filePath);
+        //   }
 
-          return res.status(400).json({
-            message: `Candidate Designation is required at row ${rowNum} for Talent Corner.`,
-          });
-        }
+        //   return res.status(400).json({
+        //     message: `Candidate Designation is required at row ${rowNum} for Talent Corner.`,
+        //   });
+        // }
 
         // ===============================================
         // CANDIDATE NAME
@@ -1003,15 +1003,15 @@ exports.uploadAndDistribute = async (req, res) => {
           lead.experienceStatus ||
           lead.experiencestatus;
 
-        if (!["Experienced", "Fresher"].includes(experience)) {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
+        // if (!["Experienced", "Fresher"].includes(experience)) {
+        //   if (fs.existsSync(filePath)) {
+        //     fs.unlinkSync(filePath);
+        //   }
 
-          return res.status(400).json({
-            message: `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Talent Corner.`,
-          });
-        }
+        //   return res.status(400).json({
+        //     message: `Experience must be either "Experienced" or "Fresher" at row ${rowNum} for Talent Corner.`,
+        //   });
+        // }
 
         // ===============================================
         // CREATE TALENT CORNER LEAD

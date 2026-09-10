@@ -12,11 +12,11 @@ const talentCornerSchema = new mongoose.Schema(
     candidateLocation: { type: String },
     candidateDesignation: {
       type: String,
-      required: true,
+      // required: true,
     },
     experience: {
       type: String,
-      required: true,
+      // required: true,
       enum: ["Experienced", "Fresher"],
     },
     source: {
@@ -42,7 +42,7 @@ const talentCornerSchema = new mongoose.Schema(
     },
     resumeStatus: {
       type: String,
-      required: true,
+      // required: true,
       enum: ["Sent", "Not Sent"],
     },
     // NEW FIELDS

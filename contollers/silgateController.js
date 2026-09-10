@@ -516,15 +516,15 @@ exports.updateSilgate = async (req, res) => {
     // --------------------------------------------------
     // 13. Experience
     // --------------------------------------------------
-    if (experience !== undefined) {
-      if (!["Experienced", "Fresher"].includes(experience)) {
-        return res.status(400).json({
-          message: "Experience must be either Experienced or Fresher.",
-        });
-      }
+    // if (experience !== undefined) {
+    //   if (!["Experienced", "Fresher"].includes(experience)) {
+    //     return res.status(400).json({
+    //       message: "Experience must be either Experienced or Fresher.",
+    //     });
+    //   }
 
-      silgateLog.experience = experience;
-    }
+    //   silgateLog.experience = experience;
+    // }
 
     // --------------------------------------------------
     // 14. Resume Upload

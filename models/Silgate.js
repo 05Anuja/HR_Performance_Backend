@@ -25,26 +25,26 @@ const silgateSchema = new mongoose.Schema(
     language: { type: String, required: true },
     disposition: {
       type: String,
-      required: true,
+      // required: true,
       // enum: ["Interested Lineup", "Not Interested", "No Contact", "Call Back"]
     },
     source: {
       type: String,
-      required: true,
+      // required: true,
       // enum: ["Work India", "Reference"]
     },
     candidateDesignation: {
       type: String,
-      required: true,
+      // required: true,
     },
     resumeStatus: {
       type: String,
-      required: true,
+      // required: true,
       enum: ["Sent", "Not Sent"],
     },
     experience: {
       type: String,
-      required: true,
+      // required: true,
       enum: ["Experienced", "Fresher"],
     },
     // NEW FIELDS
