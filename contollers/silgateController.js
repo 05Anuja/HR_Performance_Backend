@@ -259,6 +259,7 @@ exports.getAllSilgateData = async (req, res) => {
     const total = await Silgate.countDocuments(query);
     const data = await Silgate.find(query)
       .populate("hrId", "name")
+      .populate("assignedTo", "name")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
